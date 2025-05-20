@@ -177,6 +177,9 @@ cython_debug/
 .vscode/
 
 # Images
-.webp
-.jpg
-.png 
+*.webp
+*.jpg
+*.png 
+
+# Temporary run files
+run.txt
