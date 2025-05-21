@@ -3,12 +3,13 @@
 # Make a single frame showing the SyCLoPS tracks
 
 import os
+import sys
 import datetime
 
 import iris
 import iris.cube
 import iris.analysis.cartography
-import numpy
+import numpy as np
 
 import matplotlib
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
@@ -16,13 +17,40 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 from matplotlib.lines import Line2D
 
-from get_data.SyCLoPS.SyCLoPS_load import load_tracks, rotate_pole, interpolate_track
+from get_data.SyCLoPS.SyCLoPS_load import (
+    load_tracks,
+    rotate_pole,
+    interpolate_track,
+    make_trail,
+    last_date,
+    first_date,
+)
 from get_data.ERA5_hourly.ERA5_hourly import get_land_mask
 
 # Fix dask SPICE bug
 import dask
 
 dask.config.set(scheduler="single-threaded")
+
+# Set colors
+colors = {
+    "HATHL": "red",
+    "DOTHL": "green",
+    "HAL": "blue",
+    "TD(MD)": "black",
+    "PL(PTLC)": "grey",
+    "TLO": "green",
+    "DST": "orange",
+    "TC": "purple",
+    "SC": "gold",
+    "THL": "brown",
+    "TD": "red",
+    "DSE": "red",
+    "TLO(ML)": "red",
+    "DSD": "red",
+    "EX": "red",
+    "SS(STLC)": "red",
+}
 
 import argparse
 
@@ -93,11 +121,26 @@ tracks = rotate_pole(
 )
 # Reduce the tracks to the date
 itracks = {}
+itracks_before = {}
+itracks_after = {}
 for tid, track in tracks.items():
+    last_dte = last_date(track) - datetime.timedelta(minutes=1)
+    first_dte = first_date(track)
     itr = interpolate_track(track, dte)
     if itr is not None:
         itracks[tid] = itr
+    else:
+        if last_dte < dte and last_dte > dte - datetime.timedelta(hours=12):
+            itr_b = interpolate_track(track, last_dte)
+            itr_b["time_offset"] = dte - last_dte
+            itracks_before[tid] = itr_b
+        if first_dte > dte and first_dte < dte + datetime.timedelta(hours=12):
+            itr_a = interpolate_track(track, first_dte)
+            itr_a["time_offset"] = first_dte - dte
+            itracks_after[tid] = itr_a
 
+
+# Find tracks
 mask = get_land_mask()
 
 # Define the figure (page size, background color, resolution, ...
@@ -123,15 +166,15 @@ cs = iris.coord_systems.RotatedGeogCS(
 
 def plot_cube(resolution, xmin, xmax, ymin, ymax):
 
-    lat_values = numpy.arange(ymin, ymax + resolution, resolution)
+    lat_values = np.arange(ymin, ymax + resolution, resolution)
     latitude = iris.coords.DimCoord(
         lat_values, standard_name="latitude", units="degrees_north", coord_system=cs
     )
-    lon_values = numpy.arange(xmin, xmax + resolution, resolution)
+    lon_values = np.arange(xmin, xmax + resolution, resolution)
     longitude = iris.coords.DimCoord(
         lon_values, standard_name="longitude", units="degrees_east", coord_system=cs
     )
-    dummy_data = numpy.zeros((len(lat_values), len(lon_values)))
+    dummy_data = np.zeros((len(lat_values), len(lon_values)))
     plot_cube = iris.cube.Cube(
         dummy_data, dim_coords_and_dims=[(latitude, 0), (longitude, 1)]
     )
@@ -155,12 +198,12 @@ ax.add_patch(
 
 # Draw lines of latitude and longitude
 for lat in range(-90, 95, 5):
-    lwd = 0.75
+    lwd = 0.25
     x = []
     y = []
     for lon in range(-180, 181, 1):
         rp = iris.analysis.cartography.rotate_pole(
-            numpy.array(lon), numpy.array(lat), args.pole_longitude, args.pole_latitude
+            np.array(lon), np.array(lat), args.pole_longitude, args.pole_latitude
         )
         nx = rp[0] + args.npg_longitude
         if nx > 180:
@@ -179,12 +222,12 @@ for lat in range(-90, 95, 5):
         ax.add_line(Line2D(x, y, linewidth=lwd, color=(0.4, 0.4, 0.4, 1), zorder=10))
 
 for lon in range(-180, 185, 5):
-    lwd = 0.75
+    lwd = 0.25
     x = []
     y = []
     for lat in range(-90, 90, 1):
         rp = iris.analysis.cartography.rotate_pole(
-            numpy.array(lon), numpy.array(lat), args.pole_longitude, args.pole_latitude
+            np.array(lon), np.array(lat), args.pole_longitude, args.pole_latitude
         )
         nx = rp[0] + args.npg_longitude
         if nx > 180:
@@ -212,7 +255,7 @@ lons = mask.coord("longitude").points
 mask_img = ax.imshow(
     mask.data,
     extent=[lons.min(), lons.max(), lats.min(), lats.max()],
-    cmap=matplotlib.colors.ListedColormap(((0.4, 0.4, 0.4, 0), (0.4, 0.4, 0.4, 1))),
+    cmap=matplotlib.colors.ListedColormap(((0.8, 0.8, 0.8, 0), (0.8, 0.8, 0.8, 1))),
     vmin=0,
     vmax=1,
     alpha=1.0,
@@ -221,24 +264,64 @@ mask_img = ax.imshow(
     aspect="auto",
 )
 
-# Plot the tracks
-count = 0
-for tid, track in itracks.items():
+
+def pointsize(ws):  # Convert wind speed to point size
+    return (np.sqrt(ws) / 5.0) * 2
+
+
+def linewidth(ws):  # Convert wind speed to line width
+    return (np.sqrt(ws) / 2.0) * 2
+
+
+def plot_object(ax, track, tid, alpha=1):
+    #    color = (1.0 * track["Tropical_Flag"], 0, 1.0 - track["Tropical_Flag"], 1)
+    try:
+        color = colors[track["Short_Label"]]
+    except KeyError:
+        color = "black"
     ax.add_patch(
         matplotlib.patches.Circle(
             (track["LON"], track["LAT"]),
-            radius=1.0,
-            facecolor="red",
-            edgecolor="red",
+            radius=pointsize(track["WS"]),
+            facecolor=color,
+            edgecolor=color,
             linewidth=0.0,
-            alpha=1.0,
+            alpha=alpha,
             zorder=180,
         )
     )
-    count += 1
-    if count > 100:
-        break
+    # Add the trails
+    trail = make_trail(tracks, tid, dte)
+    for i in range(len(trail) - 1):
+        #        color = (1.0 * trail[i]["Tropical_Flag"], 0, 1.0 - trail[i]["Tropical_Flag"], 1)
+        try:
+            color = colors[trail[i]["Short_Label"]]
+        except KeyError:
+            color = "black"
+        if abs(trail[i]["LON"] - trail[i + 1]["LON"]) > 90:
+            continue  # Skip lines that cross the 180th meridian
+        ax.add_line(
+            Line2D(
+                [trail[i]["LON"], trail[i + 1]["LON"]],
+                [trail[i]["LAT"], trail[i + 1]["LAT"]],
+                linewidth=linewidth(trail[i]["WS"]),
+                color=color,
+                alpha=alpha * 0.5,
+                zorder=150,
+            )
+        )
 
+
+# Plot the objects
+for tid, track in itracks.items():
+    plot_object(ax, track, tid, alpha=1.0)
+
+for tid, track in itracks_before.items():
+    alpha = 1.0 - track["time_offset"].total_seconds() / 43200.0
+    plot_object(ax, track, tid, alpha=alpha)
+for tid, track in itracks_after.items():
+    alpha = 1.0 - track["time_offset"].total_seconds() / 43200.0
+    plot_object(ax, track, tid, alpha=alpha)
 
 # Label with the date
 ax.text(

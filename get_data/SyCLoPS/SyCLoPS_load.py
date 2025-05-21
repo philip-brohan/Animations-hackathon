@@ -66,6 +66,23 @@ def rotate_pole(tracks, pole_longitude, pole_latitude, npg_longitude):
     return tracks
 
 
+# Find the start and end times of a track
+def last_date(track):
+    end_time = None
+    for point in track:
+        if end_time is None or point["datetime"] > end_time:
+            end_time = point["datetime"]
+    return end_time
+
+
+def first_date(track):
+    start_time = None
+    for point in track:
+        if start_time is None or point["datetime"] < start_time:
+            start_time = point["datetime"]
+    return start_time
+
+
 # Interpolate a track to a given time
 def interpolate_track(track, target_time):
     # Assuming track is a list of dictionaries with 'datetime' and other fields
@@ -76,15 +93,18 @@ def interpolate_track(track, target_time):
     for point in track:
         if point["datetime"] <= target_time:
             before = point
-        elif point["datetime"] > target_time and after is None:
+        elif point["datetime"] >= target_time and after is None:
             after = point
             break
 
     if before is None or after is None:
         return None  # Cannot interpolate if we don't have both points
 
+    if before["datetime"] == after["datetime"]:
+        return before
+
     # Interpolate the numeric values
-    interpolated_point = {}
+    interpolated_point = after.copy()
     for key in ("LON", "LAT", "MSLP", "WS", "Tropical_Flag", "Transition_Zone"):
         if key == "LON" and (after[key] - before[key]) > 180:
             after[key] -= 360
@@ -107,10 +127,15 @@ def interpolate_track(track, target_time):
 # Make the trail of a cyclone
 def make_trail(tracks, tid, target_time):
     track = tracks[tid]
-    interpolated_track = []
+    start_time = target_time
     for point in track:
-        if point["datetime"] <= target_time:
-            interpolated_track.append(point)
-        else:
-            break
+        if point["datetime"] < start_time:
+            start_time = point["datetime"]
+    interpolated_track = []
+    current_time = target_time
+    while current_time >= start_time:
+        interpolated_point = interpolate_track(track, current_time)
+        if interpolated_point is not None:
+            interpolated_track.append(interpolated_point)
+        current_time -= datetime.timedelta(hours=1)
     return interpolated_track
