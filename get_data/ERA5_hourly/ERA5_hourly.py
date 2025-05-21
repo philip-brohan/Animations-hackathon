@@ -44,17 +44,16 @@ def load(
 ):
     if year is None or month is None or day is None or hour is None:
         raise Exception("Year, month, day, and hour must be specified")
-    fname = "%s/ERA5/hourly/reanalysis/%04d/%s.nc" % (
+    fname = "%s/ERA5/hourly/reanalysis/%04d/%02d/%s.nc" % (
         os.getenv("SCRATCH"),
         year,
+        month,
         variable,
     )
     if not os.path.isfile(fname):
         raise Exception("No data file %s" % fname)
     ftt = iris.Constraint(
-        time=lambda cell: cell.point.month == month
-        and cell.point.day == day
-        and cell.point.hour == hour
+        time=lambda cell: cell.point.day == day and cell.point.hour == hour
     )
     varC = iris.load_cube(fname, ftt)
     # Get rid of unnecessary height dimensions
