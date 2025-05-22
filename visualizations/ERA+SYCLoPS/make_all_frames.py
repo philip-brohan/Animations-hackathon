@@ -32,7 +32,7 @@ def is_done(year, month, day, hour):
 f = open("run.txt", "w+")
 
 start_day = datetime.datetime(2020, 2, 1, 0)
-end_day = datetime.datetime(2020, 3, 31, 23)
+end_day = datetime.datetime(2021, 1, 31, 23)
 
 current_day = start_day
 while current_day <= end_day:
