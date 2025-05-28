@@ -9,7 +9,7 @@ import numpy as np
 # Don't really understand this, but it gets rid of the error messages.
 iris.FUTURE.datum_support = True
 
-# ERA5 data does not have explicit coodinate systems
+# ERA5 data does not have explicit coordinate systems
 # Specify one to add on load so the cubes work properly with iris.
 cs_ERA5 = iris.coord_systems.RotatedGeogCS(90, 180, 0)
 

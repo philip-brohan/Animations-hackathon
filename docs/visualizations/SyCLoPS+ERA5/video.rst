@@ -7,11 +7,10 @@ To make a smooth video we generate one frame every hour.
 
 This script calls the :doc:`plot script <plot>` for each hour over a period:
 
-.. literalinclude:: ../../../visualizations/SyCLoPS/make_all_frames.py
+.. literalinclude:: ../../../visualizations/ERA+SyCLoPS/make_all_frames.py
 
 We then run those jobs in parallel, either with `GNU parallel <https://www.gnu.org/software/parallel/>`_ or by submitting them to a batch system (I used the MO SPICE cluster).
 
-When all the frame images are rendered we make a video using `ffmpeg <https://www.ffmpeg.org/>`_. We will render at 1080p resolution - 5Mb/s bandwidth. (Overkill for a simple video, but now everyone has lots of internet bandwidth, so it's not worth optimizing).
+When all the frame images are rendered we make a video using `ffmpeg <https://www.ffmpeg.org/>`_. Because of all the detail in the wind and precipitation fields, this video requires a lot of bandwidth, so render it at 20Mbps bandwidth (this is also why the frames are 3840X2160 in size - this produces a 4k video).
 
-.. literalinclude:: ../../../visualizations/SyCLoPS/ffmpeg.sh
-    
+.. literalinclude:: ../../../visualizations/ERA+SyCLoPS/ffmpeg.sh
