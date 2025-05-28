@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Make all the frames and combine into a video &#8212; Video Diagnostics</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinxdoc.css?v=34905f61" />
+    <script src="../../_static/documentation_options.js?v=d45e8c67"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Downscaling: UNet model" href="../Downscaling_UNet/index.html" />
+    <link rel="prev" title="Plot one frame of the ML Downscaling Diffusion video" href="plot.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../Downscaling_UNet/index.html" title="Downscaling: UNet model"
+             accesskey="N">next</a></li>
+        <li class="right" >
+          <a href="plot.html" title="Plot one frame of the ML Downscaling Diffusion video"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Video Diagnostics</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Downscaling: Diffusion model</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Make all the frames and combine into a video</a></li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <section id="make-all-the-frames-and-combine-into-a-video">
+<h1>Make all the frames and combine into a video<a class="headerlink" href="#make-all-the-frames-and-combine-into-a-video" title="Link to this heading">¶</a></h1>
+<p>To make the video we need to run the <a class="reference internal" href="plot.html"><span class="doc">plot script</span></a> thousands of times, making an image file for each point in time, and then to merge the thousands of resulting images into a single video.</p>
+<p>To make a smooth video we generate one frame every hour (interpolated from once-daily data).</p>
+<p>This script calls the <a class="reference internal" href="plot.html"><span class="doc">plot script</span></a> for each hour over a period:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python</span>
+
+<span class="c1"># Make all the individual frames for a movie</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">cftime</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">datetime</span>
+
+
+<span class="c1"># Function to check if the job is already done for this timepoint</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">is_done</span><span class="p">(</span><span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="p">,</span> <span class="n">day</span><span class="p">,</span> <span class="n">hour</span><span class="p">):</span>
+    <span class="n">op_file_name</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/AnimH/visualizations/ML_diffusion/&quot;</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="si">%04d%02d%02d%02d%02d</span><span class="s2">.png&quot;</span>
+    <span class="p">)</span> <span class="o">%</span> <span class="p">(</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SCRATCH&quot;</span><span class="p">),</span>
+        <span class="n">year</span><span class="p">,</span>
+        <span class="n">month</span><span class="p">,</span>
+        <span class="n">day</span><span class="p">,</span>
+        <span class="nb">int</span><span class="p">(</span><span class="n">hour</span><span class="p">),</span>
+        <span class="nb">int</span><span class="p">(</span><span class="n">hour</span> <span class="o">%</span> <span class="mi">1</span> <span class="o">*</span> <span class="mi">60</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">op_file_name</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">return</span> <span class="kc">False</span>
+
+
+<span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="s2">&quot;run.txt&quot;</span><span class="p">,</span> <span class="s2">&quot;w+&quot;</span><span class="p">)</span>
+
+<span class="n">start_day</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span><span class="mi">1981</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="n">calendar</span><span class="o">=</span><span class="s2">&quot;360_day&quot;</span><span class="p">)</span>
+<span class="n">end_day</span> <span class="o">=</span> <span class="n">cftime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span><span class="mi">1981</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="n">calendar</span><span class="o">=</span><span class="s2">&quot;360_day&quot;</span><span class="p">)</span>
+
+<span class="n">current_day</span> <span class="o">=</span> <span class="n">start_day</span>
+<span class="k">while</span> <span class="n">current_day</span> <span class="o">&lt;=</span> <span class="n">end_day</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">is_done</span><span class="p">(</span>
+        <span class="n">current_day</span><span class="o">.</span><span class="n">year</span><span class="p">,</span>
+        <span class="n">current_day</span><span class="o">.</span><span class="n">month</span><span class="p">,</span>
+        <span class="n">current_day</span><span class="o">.</span><span class="n">day</span><span class="p">,</span>
+        <span class="n">current_day</span><span class="o">.</span><span class="n">hour</span> <span class="o">+</span> <span class="n">current_day</span><span class="o">.</span><span class="n">minute</span> <span class="o">/</span> <span class="mi">60</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="n">current_day</span> <span class="o">=</span> <span class="n">current_day</span> <span class="o">+</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">continue</span>
+    <span class="n">cmd</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;./make_frame.py --year=</span><span class="si">%d</span><span class="s2"> --month=</span><span class="si">%d</span><span class="s2"> &quot;</span> <span class="o">+</span> <span class="s2">&quot;--day=</span><span class="si">%d</span><span class="s2"> --hour=</span><span class="si">%d</span><span class="s2"> &quot;</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span> <span class="o">%</span> <span class="p">(</span>
+        <span class="n">current_day</span><span class="o">.</span><span class="n">year</span><span class="p">,</span>
+        <span class="n">current_day</span><span class="o">.</span><span class="n">month</span><span class="p">,</span>
+        <span class="n">current_day</span><span class="o">.</span><span class="n">day</span><span class="p">,</span>
+        <span class="n">current_day</span><span class="o">.</span><span class="n">hour</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span>
+    <span class="n">current_day</span> <span class="o">=</span> <span class="n">current_day</span> <span class="o">+</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>We then run those jobs in parallel, either with <a class="reference external" href="https://www.gnu.org/software/parallel/">GNU parallel</a> or by submitting them to a batch system (I used the MO SPICE cluster).</p>
+<p>When all the frame images are rendered we make a video using <a class="reference external" href="https://www.ffmpeg.org/">ffmpeg</a>. We will render at 1080p resolution - 5Mb/s bandwidth. (Overkill for such a simple video, but now everyone has lots of internet bandwidth, so it’s not worth optimizing).</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>#!/bin/bash
+
+cd $SCRATCH/AnimH/visualizations/
+ffmpeg -r 24 -pattern_type glob -i ML_diffusion/\*.png \
+       -c:v libx264 -threads 16 -preset veryslow -tune film \
+       -profile:v high -level 4.2 -pix_fmt yuv420p \
+       -b:v 5M -maxrate 5M -bufsize 20M \
+       -c:a copy ML_diffusion.mp4
+</pre></div>
+</div>
+</section>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../../index.html">
+              <img class="logo" src="../../_static/logo.png" alt="Logo of Video Diagnostics"/>
+            </a></p>
+<h3><a href="../../index.html">Table Of Contents</a></h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../ERA5/index.html">Near-surface temperature, wind, and precipitation. From the ERA5 Reanalysis</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../ERA5/index.html">ERA5 weather</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../SyCLoPS/index.html">SyCLoPS weather events</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../SyCLoPS%2BERA5/index.html">SyCLoPS events &amp; ERA5 weather</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Downscaling: Diffusion model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_UNet/index.html">Downscaling: UNet model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_3hrly/index.html">Downscaling: 3-hourly data</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../how_to.html">How to reproduce or extend this work</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../credits.html">Authors and acknowledgements</a></li>
+</ul>
+<h3><a href="https://github.com/philip-brohan/Animations-hackathon">Get the code</a></h3>
+
+<ul>
+<li><a href="https://github.com/philip-brohan/Animations-hackathon"
+           rel="nofollow">Github repository</a></li>
+<li><a href="https://github.com/philip-brohan/Animations-hackathon/archive/master.zip"
+           rel="nofollow">Zip file</a></li>
+</ul>
+
+<h3>Found a bug, or have a suggestion?</h3>
+
+Please <a href="https://github.com/philip-brohan/Animations-hackathon/issues/new">raise an issue</a><br>or <a href="mailto://philip.brohan@metoffice.gov.uk">contact Philip</a>.
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../Downscaling_UNet/index.html" title="Downscaling: UNet model"
+             >next</a></li>
+        <li class="right" >
+          <a href="plot.html" title="Plot one frame of the ML Downscaling Diffusion video"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Video Diagnostics</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Downscaling: Diffusion model</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Make all the frames and combine into a video</a></li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+    </div>
+  </body>
+</html>

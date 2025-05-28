@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Assemble data for the ERA5 video &#8212; Video Diagnostics</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinxdoc.css?v=34905f61" />
+    <script src="../../_static/documentation_options.js?v=d45e8c67"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Plot one frame from the ERA5 video" href="plot.html" />
+    <link rel="prev" title="ERA5 in video" href="index.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="plot.html" title="Plot one frame from the ERA5 video"
+             accesskey="N">next</a></li>
+        <li class="right" >
+          <a href="index.html" title="ERA5 in video"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Video Diagnostics</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">ERA5 in video</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Assemble data for the ERA5 video</a></li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <section id="assemble-data-for-the-era5-video">
+<h1>Assemble data for the ERA5 video<a class="headerlink" href="#assemble-data-for-the-era5-video" title="Link to this heading">¶</a></h1>
+<p>We will download the data from the <a class="reference external" href="https://cds.climate.copernicus.eu/">Copernicus Climate Data Store</a>. This requires installing the <a class="reference external" href="https://cds.climate.copernicus.eu/how-to-api">CDS API</a> (<a class="reference internal" href="../../how_to.html"><span class="doc">see the environment for this repository</span></a>) and registering for an account on the CDS website.</p>
+<p>Script to download one variable for one year:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python</span>
+
+<span class="c1"># Retrieve ERA5 hourly_values.</span>
+<span class="c1">#  Every month in one year</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">cdsapi</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+
+<span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">()</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--variable&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Variable name&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--year&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Year&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--opdir&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Directory for output files&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/ERA5/hourly/reanalysis&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SCRATCH&quot;</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+<span class="n">args</span><span class="o">.</span><span class="n">opdir</span> <span class="o">+=</span> <span class="s2">&quot;/</span><span class="si">%04d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">args</span><span class="o">.</span><span class="n">year</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">opdir</span><span class="p">):</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">opdir</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">cdsapi</span><span class="o">.</span><span class="n">Client</span><span class="p">()</span>
+
+<span class="n">dataset</span> <span class="o">=</span> <span class="s2">&quot;reanalysis-era5-single-levels&quot;</span>
+<span class="k">for</span> <span class="n">month</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">13</span><span class="p">):</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/</span><span class="si">%02d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">opdir</span><span class="p">,</span> <span class="n">month</span><span class="p">),</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">opfile</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/</span><span class="si">%02d</span><span class="s2">/</span><span class="si">%s</span><span class="s2">.nc&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">opdir</span><span class="p">,</span> <span class="n">month</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">variable</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">opfile</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;File </span><span class="si">%s</span><span class="s2"> already exists, skipping download&quot;</span> <span class="o">%</span> <span class="n">opfile</span><span class="p">)</span>
+        <span class="k">continue</span>
+    <span class="n">request</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;product_type&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;reanalysis&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;variable&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">args</span><span class="o">.</span><span class="n">variable</span><span class="p">],</span>
+        <span class="s2">&quot;year&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">args</span><span class="o">.</span><span class="n">year</span><span class="p">],</span>
+        <span class="s2">&quot;month&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">month</span><span class="p">],</span>
+        <span class="s2">&quot;day&quot;</span><span class="p">:</span> <span class="p">[</span>
+            <span class="s2">&quot;01&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;02&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;03&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;04&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;05&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;06&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;07&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;08&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;09&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;10&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;11&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;12&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;13&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;14&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;15&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;16&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;17&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;18&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;19&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;20&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;21&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;22&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;23&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;24&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;25&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;26&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;27&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;28&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;29&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;30&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;31&quot;</span><span class="p">,</span>
+        <span class="p">],</span>
+        <span class="s2">&quot;time&quot;</span><span class="p">:</span> <span class="p">[</span>
+            <span class="s2">&quot;00:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;01:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;02:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;03:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;04:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;05:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;06:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;07:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;08:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;09:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;10:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;11:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;12:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;13:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;14:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;15:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;16:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;17:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;18:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;19:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;20:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;21:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;22:00&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;23:00&quot;</span><span class="p">,</span>
+        <span class="p">],</span>
+        <span class="s2">&quot;data_format&quot;</span><span class="p">:</span> <span class="s2">&quot;netcdf&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;download_format&quot;</span><span class="p">:</span> <span class="s2">&quot;unarchived&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Downloading </span><span class="si">%s</span><span class="s2"> for </span><span class="si">%04d</span><span class="s2">-</span><span class="si">%02d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">variable</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="p">))</span>
+    <span class="n">c</span><span class="o">.</span><span class="n">retrieve</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="n">request</span><span class="p">)</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="n">opfile</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Run the script above repeatedly to get all the variables for the whole period.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python</span>
+
+<span class="c1"># Get monthly ERA5 data for several years, and store on SCRATCH.</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+
+<span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">()</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--startyear&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">1940</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--endyear&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">2024</span><span class="p">)</span>
+<span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+<span class="k">for</span> <span class="n">year</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">startyear</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">endyear</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">var</span> <span class="ow">in</span> <span class="p">[</span>
+        <span class="s2">&quot;2m_temperature&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;mean_sea_level_pressure&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;total_precipitation&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;10m_u_component_of_wind&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;10m_v_component_of_wind&quot;</span>
+    <span class="p">]:</span>
+        <span class="n">opfile</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/ERA5/hourly/reanalysis/</span><span class="si">%04d</span><span class="s2">/</span><span class="si">%s</span><span class="s2">.nc&quot;</span> <span class="o">%</span> <span class="p">(</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SCRATCH&quot;</span><span class="p">),</span>
+            <span class="n">year</span><span class="p">,</span>
+            <span class="n">var</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">opfile</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span>
+                <span class="p">(</span><span class="s2">&quot;./get_year_of_hourlies.py --year=</span><span class="si">%d</span><span class="s2"> --variable=</span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="o">%</span> <span class="p">(</span>
+                    <span class="n">year</span><span class="p">,</span>
+                    <span class="n">var</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+</pre></div>
+</div>
+<p>As well as the weather data, the plot script needs a land-mask file to plot the continents. This script retrieves that.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python</span>
+
+<span class="c1"># Retrieve a soil temperature file from ERA5-land</span>
+
+<span class="c1"># This is just an easy way to get a high-resolution land mask for plotting</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">cdsapi</span>
+
+<span class="n">opdir</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/ERA5/&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SCRATCH&quot;</span><span class="p">)</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">opdir</span><span class="p">):</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">opdir</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/land_mask.nc&quot;</span> <span class="o">%</span> <span class="n">opdir</span><span class="p">):</span>  <span class="c1"># Only bother if we don&#39;t have it</span>
+
+    <span class="n">c</span> <span class="o">=</span> <span class="n">cdsapi</span><span class="o">.</span><span class="n">Client</span><span class="p">()</span> 
+
+    <span class="c1"># Variable and date are arbitrary</span>
+    <span class="c1"># Just want something that is only defined in land grid-cells.</span>
+
+    <span class="n">dataset</span> <span class="o">=</span> <span class="s2">&quot;reanalysis-era5-land-monthly-means&quot;</span>
+    <span class="n">request</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;product_type&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;monthly_averaged_reanalysis&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;variable&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;soil_temperature_level_1&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;year&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;2024&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;month&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;01&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;time&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;00:00&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;data_format&quot;</span><span class="p">:</span> <span class="s2">&quot;netcdf&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;download_format&quot;</span><span class="p">:</span> <span class="s2">&quot;unarchived&quot;</span>
+    <span class="p">}</span>
+
+    <span class="n">c</span><span class="o">.</span><span class="n">retrieve</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="n">request</span><span class="p">)</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/</span><span class="si">%s</span><span class="s2">.nc&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">opdir</span><span class="p">,</span> <span class="s2">&quot;land_mask&quot;</span><span class="p">))</span>
+
+    <span class="c1"># Use system call to run ncks on output file</span>
+    <span class="c1"># To remove &#39;expver&#39; variable (otherwise iris won&#39;t load it)</span>
+    <span class="c1"># os.system(</span>
+    <span class="c1">#     &quot;ncks -O -C -x -v expver %s/%s.nc %s/%s.nc&quot;</span>
+    <span class="c1">#     % (opdir, &quot;land_mask&quot;, opdir, &quot;land_mask&quot;)</span>
+    <span class="c1"># ) test</span>
+</pre></div>
+</div>
+<p>As well as downloading the data, we want some convenience functions to load it into a convenient format (<a class="reference external" href="https://scitools-iris.readthedocs.io/en/latest/userguide/iris_cubes.html">iris cubes</a>). This script does that for the ERA5 data.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Functions to load ERA5 Hourly data</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">iris</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">iris.util</span><span class="w"> </span><span class="kn">import</span> <span class="n">squeeze</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">iris.coord_systems</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="c1"># Don&#39;t really understand this, but it gets rid of the error messages.</span>
+<span class="n">iris</span><span class="o">.</span><span class="n">FUTURE</span><span class="o">.</span><span class="n">datum_support</span> <span class="o">=</span> <span class="kc">True</span>
+
+<span class="c1"># ERA5 data does not have explicit coordinate systems</span>
+<span class="c1"># Specify one to add on load so the cubes work properly with iris.</span>
+<span class="n">cs_ERA5</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">coord_systems</span><span class="o">.</span><span class="n">RotatedGeogCS</span><span class="p">(</span><span class="mi">90</span><span class="p">,</span> <span class="mi">180</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+
+<span class="c1"># And a function to add the coord system to a cube (in-place)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">add_coord_system</span><span class="p">(</span><span class="n">cbe</span><span class="p">):</span>
+    <span class="n">cbe</span><span class="o">.</span><span class="n">coord</span><span class="p">(</span><span class="s2">&quot;latitude&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">coord_system</span> <span class="o">=</span> <span class="n">cs_ERA5</span>
+    <span class="n">cbe</span><span class="o">.</span><span class="n">coord</span><span class="p">(</span><span class="s2">&quot;longitude&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">coord_system</span> <span class="o">=</span> <span class="n">cs_ERA5</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_land_mask</span><span class="p">():</span>
+    <span class="c1"># Load the land mask</span>
+    <span class="n">fname</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/ERA5/land_mask.nc&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SCRATCH&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">fname</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;No data file </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">fname</span><span class="p">)</span>
+    <span class="n">land_mask</span> <span class="o">=</span> <span class="n">squeeze</span><span class="p">(</span><span class="n">iris</span><span class="o">.</span><span class="n">load_cube</span><span class="p">(</span><span class="n">fname</span><span class="p">))</span>
+    <span class="c1"># Set data to 1 for land, 0 for sea</span>
+    <span class="n">land_mask</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">land_mask</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">land_mask</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="o">~</span><span class="n">land_mask</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">add_coord_system</span><span class="p">(</span><span class="n">land_mask</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">land_mask</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span>
+    <span class="n">variable</span><span class="o">=</span><span class="s2">&quot;total_precipitation&quot;</span><span class="p">,</span>
+    <span class="n">year</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">month</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">day</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">hour</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">constraint</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="k">if</span> <span class="n">year</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">month</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">day</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">hour</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Year, month, day, and hour must be specified&quot;</span><span class="p">)</span>
+    <span class="n">fname</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/ERA5/hourly/reanalysis/</span><span class="si">%04d</span><span class="s2">/</span><span class="si">%02d</span><span class="s2">/</span><span class="si">%s</span><span class="s2">.nc&quot;</span> <span class="o">%</span> <span class="p">(</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SCRATCH&quot;</span><span class="p">),</span>
+        <span class="n">year</span><span class="p">,</span>
+        <span class="n">month</span><span class="p">,</span>
+        <span class="n">variable</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">fname</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;No data file </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">fname</span><span class="p">)</span>
+    <span class="n">ftt</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">Constraint</span><span class="p">(</span>
+        <span class="n">time</span><span class="o">=</span><span class="k">lambda</span> <span class="n">cell</span><span class="p">:</span> <span class="n">cell</span><span class="o">.</span><span class="n">point</span><span class="o">.</span><span class="n">day</span> <span class="o">==</span> <span class="n">day</span> <span class="ow">and</span> <span class="n">cell</span><span class="o">.</span><span class="n">point</span><span class="o">.</span><span class="n">hour</span> <span class="o">==</span> <span class="n">hour</span>
+    <span class="p">)</span>
+    <span class="n">varC</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">load_cube</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">ftt</span><span class="p">)</span>
+    <span class="c1"># Get rid of unnecessary height dimensions</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">varC</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="n">varC</span> <span class="o">=</span> <span class="n">varC</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span><span class="n">iris</span><span class="o">.</span><span class="n">Constraint</span><span class="p">(</span><span class="n">expver</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+    <span class="n">add_coord_system</span><span class="p">(</span><span class="n">varC</span><span class="p">)</span>
+    <span class="n">varC</span><span class="o">.</span><span class="n">long_name</span> <span class="o">=</span> <span class="n">variable</span>
+    <span class="k">if</span> <span class="n">grid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">varC</span> <span class="o">=</span> <span class="n">varC</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">grid</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Nearest</span><span class="p">())</span>
+    <span class="k">if</span> <span class="n">constraint</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">varC</span> <span class="o">=</span> <span class="n">varC</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span><span class="n">constraint</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">varC</span>
+</pre></div>
+</div>
+</section>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../../index.html">
+              <img class="logo" src="../../_static/logo.png" alt="Logo of Video Diagnostics"/>
+            </a></p>
+<h3><a href="../../index.html">Table Of Contents</a></h3>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Near-surface temperature, wind, and precipitation. From the ERA5 Reanalysis</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">ERA5 weather</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../SyCLoPS/index.html">SyCLoPS weather events</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../SyCLoPS%2BERA5/index.html">SyCLoPS events &amp; ERA5 weather</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_diffusion/index.html">Downscaling: Diffusion model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_UNet/index.html">Downscaling: UNet model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_3hrly/index.html">Downscaling: 3-hourly data</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../how_to.html">How to reproduce or extend this work</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../credits.html">Authors and acknowledgements</a></li>
+</ul>
+<h3><a href="https://github.com/philip-brohan/Animations-hackathon">Get the code</a></h3>
+
+<ul>
+<li><a href="https://github.com/philip-brohan/Animations-hackathon"
+           rel="nofollow">Github repository</a></li>
+<li><a href="https://github.com/philip-brohan/Animations-hackathon/archive/master.zip"
+           rel="nofollow">Zip file</a></li>
+</ul>
+
+<h3>Found a bug, or have a suggestion?</h3>
+
+Please <a href="https://github.com/philip-brohan/Animations-hackathon/issues/new">raise an issue</a><br>or <a href="mailto://philip.brohan@metoffice.gov.uk">contact Philip</a>.
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="plot.html" title="Plot one frame from the ERA5 video"
+             >next</a></li>
+        <li class="right" >
+          <a href="index.html" title="ERA5 in video"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Video Diagnostics</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >ERA5 in video</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Assemble data for the ERA5 video</a></li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+    </div>
+  </body>
+</html>

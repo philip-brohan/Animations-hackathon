@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Assemble data for the SyCLoPS video &#8212; Video Diagnostics</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinxdoc.css?v=34905f61" />
+    <script src="../../_static/documentation_options.js?v=d45e8c67"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Plot one frame from the SyCLoPS video" href="plot.html" />
+    <link rel="prev" title="SyCLoPS in video" href="index.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="plot.html" title="Plot one frame from the SyCLoPS video"
+             accesskey="N">next</a></li>
+        <li class="right" >
+          <a href="index.html" title="SyCLoPS in video"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Video Diagnostics</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">SyCLoPS in video</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Assemble data for the SyCLoPS video</a></li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <section id="assemble-data-for-the-syclops-video">
+<h1>Assemble data for the SyCLoPS video<a class="headerlink" href="#assemble-data-for-the-syclops-video" title="Link to this heading">¶</a></h1>
+<p>I got the data from <a class="reference external" href="https://www.metoffice.gov.uk/research/people/malcolm-roberts">Malcolm Roberts</a>. I’m not including it here, but it comes as a CSV file like this:</p>
+<div class="highlight-csv notranslate"><div class="highlight"><pre><span></span>,TID,LON,LAT,ISOTIME,MSLP,WS,Full_Name,Short_Label,Tropical_Flag,Transition_Zone,Track_Info,LPSAREA,IKE
+7259781,353897,30.25,8.0,2020-02-01 00:00:00,100961.4,4.639237,Thermal Low,THL,1.0,0.0,Track,0,0.0
+7259782,353897,30.0,7.0,2020-02-01 03:00:00,101083.2,4.169771,Thermal Low,THL,1.0,0.0,Track,0,0.0
+...
+</pre></div>
+</div>
+<p>So it’s straightforward to write a function to load into a python dictionary. Because we’re making a video, each frame will need to plot a point in time, and we’ll need a higher time-frequency for frames than the SyCLoPS data provides. So we add an <code class="docutils literal notranslate"><span class="pre">`interpolate_track`</span></code> function to get an event at an arbitrary time.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Load the cyclone tracks from Malcolm&#39;s dataset</span>
+
+<span class="n">tracks_file</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;/data/users/malcolm.roberts/SyCLoPS_REV/ERA5_SyCLoPS_classified_2020-21_subset.csv&quot;</span>
+<span class="p">)</span>
+<span class="c1"># Load the contents of the tracks file using the csv module</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">csv</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">datetime</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">iris.analysis.cartography</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+
+<span class="c1"># Convert the list of lists into a list of dictionaries</span>
+<span class="c1"># (assuming the first row contains the column names)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_tracks</span><span class="p">():</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">tracks_file</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">reader</span> <span class="o">=</span> <span class="n">csv</span><span class="o">.</span><span class="n">DictReader</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="c1"># Read the rest of the rows into a list</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+    <span class="c1"># Convert the dates to datetime objects</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">row</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">strptime</span><span class="p">(</span>
+            <span class="n">row</span><span class="p">[</span><span class="s2">&quot;ISOTIME&quot;</span><span class="p">],</span> <span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2"> %H:%M:%S&quot;</span>
+        <span class="p">)</span>
+    <span class="c1"># Convert numeric values to floats</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;LON&quot;</span><span class="p">,</span> <span class="s2">&quot;LAT&quot;</span><span class="p">,</span> <span class="s2">&quot;MSLP&quot;</span><span class="p">,</span> <span class="s2">&quot;WS&quot;</span><span class="p">,</span> <span class="s2">&quot;Tropical_Flag&quot;</span><span class="p">,</span> <span class="s2">&quot;Transition_Zone&quot;</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">row</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="n">key</span><span class="p">])</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="k">pass</span>
+    <span class="c1"># Mke sure the longitude is in the range -180 to 180</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;LON&quot;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">180</span><span class="p">:</span>
+            <span class="n">row</span><span class="p">[</span><span class="s2">&quot;LON&quot;</span><span class="p">]</span> <span class="o">-=</span> <span class="mi">360</span>
+        <span class="k">elif</span> <span class="n">row</span><span class="p">[</span><span class="s2">&quot;LON&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mi">180</span><span class="p">:</span>
+            <span class="n">row</span><span class="p">[</span><span class="s2">&quot;LON&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">360</span>
+    <span class="c1"># Subset points by cyclone ID</span>
+    <span class="n">tracks_by_tid</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">point</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">tid</span> <span class="o">=</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;TID&quot;</span><span class="p">]</span>  <span class="c1"># Assuming &#39;TID&#39; is the column name</span>
+
+        <span class="k">if</span> <span class="n">tid</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">tracks_by_tid</span><span class="p">:</span>
+            <span class="n">tracks_by_tid</span><span class="p">[</span><span class="n">tid</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="n">tracks_by_tid</span><span class="p">[</span><span class="n">tid</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">point</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">tracks_by_tid</span>
+
+
+<span class="c1"># Rotate the pole</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">rotate_pole</span><span class="p">(</span><span class="n">tracks</span><span class="p">,</span> <span class="n">pole_longitude</span><span class="p">,</span> <span class="n">pole_latitude</span><span class="p">,</span> <span class="n">npg_longitude</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">tid</span><span class="p">,</span> <span class="n">track</span> <span class="ow">in</span> <span class="n">tracks</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">point</span> <span class="ow">in</span> <span class="n">track</span><span class="p">:</span>
+            <span class="n">rp</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">cartography</span><span class="o">.</span><span class="n">rotate_pole</span><span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">point</span><span class="p">[</span><span class="s2">&quot;LON&quot;</span><span class="p">]),</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">point</span><span class="p">[</span><span class="s2">&quot;LAT&quot;</span><span class="p">]),</span>
+                <span class="n">pole_longitude</span><span class="p">,</span>
+                <span class="n">pole_latitude</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">point</span><span class="p">[</span><span class="s2">&quot;LON&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">rp</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">npg_longitude</span>
+            <span class="k">if</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;LON&quot;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">180</span><span class="p">:</span>
+                <span class="n">point</span><span class="p">[</span><span class="s2">&quot;LON&quot;</span><span class="p">]</span> <span class="o">-=</span> <span class="mi">360</span>
+            <span class="k">elif</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;LON&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mi">180</span><span class="p">:</span>
+                <span class="n">point</span><span class="p">[</span><span class="s2">&quot;LON&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">360</span>
+            <span class="n">point</span><span class="p">[</span><span class="s2">&quot;LAT&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">rp</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">tracks</span>
+
+
+<span class="c1"># Find the start and end times of a track</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">last_date</span><span class="p">(</span><span class="n">track</span><span class="p">):</span>
+    <span class="n">end_time</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">point</span> <span class="ow">in</span> <span class="n">track</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">end_time</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">end_time</span><span class="p">:</span>
+            <span class="n">end_time</span> <span class="o">=</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">end_time</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">first_date</span><span class="p">(</span><span class="n">track</span><span class="p">):</span>
+    <span class="n">start_time</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">point</span> <span class="ow">in</span> <span class="n">track</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">start_time</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">start_time</span><span class="p">:</span>
+            <span class="n">start_time</span> <span class="o">=</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">start_time</span>
+
+
+<span class="c1"># Interpolate a track to a given time</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">interpolate_track</span><span class="p">(</span><span class="n">track</span><span class="p">,</span> <span class="n">target_time</span><span class="p">):</span>
+    <span class="c1"># Assuming track is a list of dictionaries with &#39;datetime&#39; and other fields</span>
+    <span class="c1"># Find the two points surrounding the target time</span>
+    <span class="n">before</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">after</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">for</span> <span class="n">point</span> <span class="ow">in</span> <span class="n">track</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">target_time</span><span class="p">:</span>
+            <span class="n">before</span> <span class="o">=</span> <span class="n">point</span>
+        <span class="k">elif</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">target_time</span> <span class="ow">and</span> <span class="n">after</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">after</span> <span class="o">=</span> <span class="n">point</span>
+            <span class="k">break</span>
+
+    <span class="k">if</span> <span class="n">before</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">after</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># Cannot interpolate if we don&#39;t have both points</span>
+
+    <span class="k">if</span> <span class="n">before</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">after</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="n">before</span>
+
+    <span class="c1"># Interpolate the numeric values</span>
+    <span class="n">interpolated_point</span> <span class="o">=</span> <span class="n">after</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;LON&quot;</span><span class="p">,</span> <span class="s2">&quot;LAT&quot;</span><span class="p">,</span> <span class="s2">&quot;MSLP&quot;</span><span class="p">,</span> <span class="s2">&quot;WS&quot;</span><span class="p">,</span> <span class="s2">&quot;Tropical_Flag&quot;</span><span class="p">,</span> <span class="s2">&quot;Transition_Zone&quot;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">key</span> <span class="o">==</span> <span class="s2">&quot;LON&quot;</span> <span class="ow">and</span> <span class="p">(</span><span class="n">after</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">-</span> <span class="n">before</span><span class="p">[</span><span class="n">key</span><span class="p">])</span> <span class="o">&gt;</span> <span class="mi">180</span><span class="p">:</span>
+            <span class="n">after</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">-=</span> <span class="mi">360</span>
+        <span class="k">if</span> <span class="n">key</span> <span class="o">==</span> <span class="s2">&quot;LON&quot;</span> <span class="ow">and</span> <span class="p">(</span><span class="n">before</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">-</span> <span class="n">after</span><span class="p">[</span><span class="n">key</span><span class="p">])</span> <span class="o">&gt;</span> <span class="mi">180</span><span class="p">:</span>
+            <span class="n">before</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">-=</span> <span class="mi">360</span>
+        <span class="n">interpolated_point</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">before</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="n">after</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">-</span> <span class="n">before</span><span class="p">[</span><span class="n">key</span><span class="p">])</span> <span class="o">*</span> <span class="p">(</span>
+            <span class="p">(</span><span class="n">target_time</span> <span class="o">-</span> <span class="n">before</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">])</span><span class="o">.</span><span class="n">total_seconds</span><span class="p">()</span>
+            <span class="o">/</span> <span class="p">(</span><span class="n">after</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">before</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">])</span><span class="o">.</span><span class="n">total_seconds</span><span class="p">()</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">key</span> <span class="o">==</span> <span class="s2">&quot;LON&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">interpolated_point</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">180</span><span class="p">:</span>
+                <span class="n">interpolated_point</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">-=</span> <span class="mi">360</span>
+            <span class="k">elif</span> <span class="n">interpolated_point</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mi">180</span><span class="p">:</span>
+                <span class="n">interpolated_point</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">360</span>
+
+    <span class="n">interpolated_point</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">target_time</span>
+    <span class="k">return</span> <span class="n">interpolated_point</span>
+
+
+<span class="c1"># Make the trail of a cyclone</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_trail</span><span class="p">(</span><span class="n">tracks</span><span class="p">,</span> <span class="n">tid</span><span class="p">,</span> <span class="n">target_time</span><span class="p">):</span>
+    <span class="n">track</span> <span class="o">=</span> <span class="n">tracks</span><span class="p">[</span><span class="n">tid</span><span class="p">]</span>
+    <span class="n">start_time</span> <span class="o">=</span> <span class="n">target_time</span>
+    <span class="k">for</span> <span class="n">point</span> <span class="ow">in</span> <span class="n">track</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">start_time</span><span class="p">:</span>
+            <span class="n">start_time</span> <span class="o">=</span> <span class="n">point</span><span class="p">[</span><span class="s2">&quot;datetime&quot;</span><span class="p">]</span>
+    <span class="n">interpolated_track</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">current_time</span> <span class="o">=</span> <span class="n">target_time</span>
+    <span class="k">while</span> <span class="n">current_time</span> <span class="o">&gt;=</span> <span class="n">start_time</span><span class="p">:</span>
+        <span class="n">interpolated_point</span> <span class="o">=</span> <span class="n">interpolate_track</span><span class="p">(</span><span class="n">track</span><span class="p">,</span> <span class="n">current_time</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">interpolated_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">interpolated_track</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">interpolated_point</span><span class="p">)</span>
+        <span class="n">current_time</span> <span class="o">-=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">interpolated_track</span>
+</pre></div>
+</div>
+</section>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../../index.html">
+              <img class="logo" src="../../_static/logo.png" alt="Logo of Video Diagnostics"/>
+            </a></p>
+<h3><a href="../../index.html">Table Of Contents</a></h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../ERA5/index.html">Near-surface temperature, wind, and precipitation. From the ERA5 Reanalysis</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../ERA5/index.html">ERA5 weather</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">SyCLoPS weather events</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../SyCLoPS%2BERA5/index.html">SyCLoPS events &amp; ERA5 weather</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_diffusion/index.html">Downscaling: Diffusion model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_UNet/index.html">Downscaling: UNet model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_3hrly/index.html">Downscaling: 3-hourly data</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../how_to.html">How to reproduce or extend this work</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../credits.html">Authors and acknowledgements</a></li>
+</ul>
+<h3><a href="https://github.com/philip-brohan/Animations-hackathon">Get the code</a></h3>
+
+<ul>
+<li><a href="https://github.com/philip-brohan/Animations-hackathon"
+           rel="nofollow">Github repository</a></li>
+<li><a href="https://github.com/philip-brohan/Animations-hackathon/archive/master.zip"
+           rel="nofollow">Zip file</a></li>
+</ul>
+
+<h3>Found a bug, or have a suggestion?</h3>
+
+Please <a href="https://github.com/philip-brohan/Animations-hackathon/issues/new">raise an issue</a><br>or <a href="mailto://philip.brohan@metoffice.gov.uk">contact Philip</a>.
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="plot.html" title="Plot one frame from the SyCLoPS video"
+             >next</a></li>
+        <li class="right" >
+          <a href="index.html" title="SyCLoPS in video"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Video Diagnostics</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >SyCLoPS in video</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Assemble data for the SyCLoPS video</a></li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+    </div>
+  </body>
+</html>

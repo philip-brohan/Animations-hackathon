@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Plot one frame of the 3-hourly precipitation video &#8212; Video Diagnostics</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinxdoc.css?v=34905f61" />
+    <script src="../../_static/documentation_options.js?v=d45e8c67"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Make all the frames and combine into a video" href="video.html" />
+    <link rel="prev" title="Downscaling: 3-hourly data" href="index.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="video.html" title="Make all the frames and combine into a video"
+             accesskey="N">next</a></li>
+        <li class="right" >
+          <a href="index.html" title="Downscaling: 3-hourly data"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Video Diagnostics</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Downscaling: 3-hourly data</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Plot one frame of the 3-hourly precipitation video</a></li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <section id="plot-one-frame-of-the-3-hourly-precipitation-video">
+<h1>Plot one frame of the 3-hourly precipitation video<a class="headerlink" href="#plot-one-frame-of-the-3-hourly-precipitation-video" title="Link to this heading">¶</a></h1>
+<p>The plot is a straightforward colourmap of the precipitation field, overlain with a mostly-transparent land mask.</p>
+<p>Script to make a single frame:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python</span>
+
+<span class="c1"># Target  3-hourly precip</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">get_data.ML_tests.ML_data</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_3hr_i</span><span class="p">,</span> <span class="n">get_land_mask</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.backends.backend_agg</span><span class="w"> </span><span class="kn">import</span> <span class="n">FigureCanvasAgg</span> <span class="k">as</span> <span class="n">FigureCanvas</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.figure</span><span class="w"> </span><span class="kn">import</span> <span class="n">Figure</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.patches</span><span class="w"> </span><span class="kn">import</span> <span class="n">Rectangle</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">cmocean</span>
+
+<span class="c1"># Fix dask SPICE bug</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">dask</span>
+
+<span class="n">dask</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">scheduler</span><span class="o">=</span><span class="s2">&quot;single-threaded&quot;</span><span class="p">)</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+
+<span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">()</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--year&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Year&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--month&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Integer month&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--day&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Day of month&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--hour&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Time of day (0 to 23)&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--minute&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Minute of hour (0 to 59)&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--opdir&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Directory for output files&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/AnimH/visualizations/3_hr_precip&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SCRATCH&quot;</span><span class="p">),</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--debug&quot;</span><span class="p">,</span>
+    <span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">opdir</span><span class="p">):</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">opdir</span><span class="p">)</span>
+
+
+<span class="n">target</span> <span class="o">=</span> <span class="n">load_3hr_i</span><span class="p">(</span><span class="s2">&quot;target&quot;</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">day</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">hour</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">minute</span><span class="p">)</span>
+
+<span class="n">mask</span> <span class="o">=</span> <span class="n">get_land_mask</span><span class="p">()</span>
+
+
+<span class="c1"># Define the figure (page size, background color, resolution, ...</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">Figure</span><span class="p">(</span>
+    <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mf">19.2</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="mf">10.8</span> <span class="o">*</span> <span class="mi">2</span><span class="p">),</span>  <span class="c1"># Width, Height (inches)</span>
+    <span class="n">dpi</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">facecolor</span><span class="o">=</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">edgecolor</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">linewidth</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+    <span class="n">frameon</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>  <span class="c1"># Don&#39;t draw a frame</span>
+    <span class="n">subplotpars</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">tight_layout</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">fig</span><span class="o">.</span><span class="n">set_frameon</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+<span class="c1"># Attach a canvas</span>
+<span class="n">canvas</span> <span class="o">=</span> <span class="n">FigureCanvas</span><span class="p">(</span><span class="n">fig</span><span class="p">)</span>
+
+
+<span class="c1"># Define an axes to contain the background</span>
+<span class="n">ax</span> <span class="o">=</span> <span class="n">fig</span><span class="o">.</span><span class="n">add_axes</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_axis_off</span><span class="p">()</span>  <span class="c1"># Don&#39;t want surrounding x and y axis</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">add_patch</span><span class="p">(</span>  <span class="c1"># Background</span>
+    <span class="n">Rectangle</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">facecolor</span><span class="o">=</span><span class="p">(</span><span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.9</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">fill</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="p">)</span>
+
+<span class="c1"># Left hand axes for target</span>
+<span class="n">ax_target</span> <span class="o">=</span> <span class="n">fig</span><span class="o">.</span><span class="n">add_axes</span><span class="p">([</span><span class="mf">0.01</span><span class="p">,</span> <span class="mf">0.06</span><span class="p">,</span> <span class="mf">0.485</span><span class="p">,</span> <span class="mf">0.88</span><span class="p">])</span>
+
+<span class="c1"># Lat and lon range (in rotated-pole coordinates) for plot</span>
+<span class="n">ax_target</span><span class="o">.</span><span class="n">set_aspect</span><span class="p">(</span><span class="s2">&quot;auto&quot;</span><span class="p">)</span>
+<span class="n">ax_target</span><span class="o">.</span><span class="n">set_axis_off</span><span class="p">()</span>
+<span class="n">ax_target</span><span class="o">.</span><span class="n">add_patch</span><span class="p">(</span>  <span class="c1"># Background</span>
+    <span class="n">Rectangle</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">facecolor</span><span class="o">=</span><span class="p">(</span><span class="mf">0.95</span><span class="p">,</span> <span class="mf">0.95</span><span class="p">,</span> <span class="mf">0.95</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">fill</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<span class="p">)</span>
+
+<span class="n">lats</span> <span class="o">=</span> <span class="n">mask</span><span class="o">.</span><span class="n">coord</span><span class="p">(</span><span class="s2">&quot;grid_latitude&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">points</span>
+<span class="n">lons</span> <span class="o">=</span> <span class="n">mask</span><span class="o">.</span><span class="n">coord</span><span class="p">(</span><span class="s2">&quot;grid_longitude&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">points</span>
+<span class="n">ax_target</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span>
+    <span class="n">mask</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
+    <span class="n">extent</span><span class="o">=</span><span class="p">[</span><span class="n">lons</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">lons</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">lats</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">lats</span><span class="o">.</span><span class="n">max</span><span class="p">()],</span>
+    <span class="n">cmap</span><span class="o">=</span><span class="n">matplotlib</span><span class="o">.</span><span class="n">colors</span><span class="o">.</span><span class="n">ListedColormap</span><span class="p">(((</span><span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.15</span><span class="p">))),</span>
+    <span class="n">vmin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">vmax</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">alpha</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">zorder</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span>
+    <span class="n">origin</span><span class="o">=</span><span class="s2">&quot;lower&quot;</span><span class="p">,</span>
+    <span class="n">aspect</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">ax_target</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span>
+    <span class="n">target</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
+    <span class="n">extent</span><span class="o">=</span><span class="p">[</span><span class="n">lons</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">lons</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">lats</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">lats</span><span class="o">.</span><span class="n">max</span><span class="p">()],</span>
+    <span class="n">cmap</span><span class="o">=</span><span class="n">cmocean</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">rain</span><span class="p">,</span>
+    <span class="n">vmin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">vmax</span><span class="o">=</span><span class="mi">350</span><span class="p">,</span>
+    <span class="n">alpha</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">zorder</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+    <span class="n">origin</span><span class="o">=</span><span class="s2">&quot;lower&quot;</span><span class="p">,</span>
+    <span class="n">aspect</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="c1"># Label with the date</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">text</span><span class="p">(</span>
+    <span class="mf">0.985</span><span class="p">,</span>
+    <span class="mf">0.97</span><span class="p">,</span>
+    <span class="s2">&quot;</span><span class="si">%04d</span><span class="s2">-</span><span class="si">%02d</span><span class="s2">-</span><span class="si">%02d</span><span class="s2">:</span><span class="si">%02d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">day</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">hour</span><span class="p">),</span>
+    <span class="n">horizontalalignment</span><span class="o">=</span><span class="s2">&quot;right&quot;</span><span class="p">,</span>
+    <span class="n">verticalalignment</span><span class="o">=</span><span class="s2">&quot;top&quot;</span><span class="p">,</span>
+    <span class="n">color</span><span class="o">=</span><span class="s2">&quot;black&quot;</span><span class="p">,</span>
+    <span class="n">bbox</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+        <span class="n">facecolor</span><span class="o">=</span><span class="p">(</span><span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s2">&quot;black&quot;</span><span class="p">,</span> <span class="n">boxstyle</span><span class="o">=</span><span class="s2">&quot;round&quot;</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="mf">0.5</span>
+    <span class="p">),</span>
+    <span class="n">size</span><span class="o">=</span><span class="mi">48</span><span class="p">,</span>
+    <span class="n">clip_on</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">zorder</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Render the figure as a png</span>
+<span class="n">opfile</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/</span><span class="si">%04d%02d%02d%02d%02d</span><span class="s2">.png&quot;</span> <span class="o">%</span> <span class="p">(</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">opdir</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">year</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">month</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">day</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">hour</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">minute</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">debug</span><span class="p">:</span>
+    <span class="n">opfile</span> <span class="o">=</span> <span class="s2">&quot;debug.png&quot;</span>
+<span class="n">fig</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">opfile</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>For the functions to load the data, see the diffusion model <a class="reference internal" href="../Downscaling_diffusion/index.html"><span class="doc">page</span></a>.</p>
+</section>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../../index.html">
+              <img class="logo" src="../../_static/logo.png" alt="Logo of Video Diagnostics"/>
+            </a></p>
+<h3><a href="../../index.html">Table Of Contents</a></h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../ERA5/index.html">Near-surface temperature, wind, and precipitation. From the ERA5 Reanalysis</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../ERA5/index.html">ERA5 weather</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../SyCLoPS/index.html">SyCLoPS weather events</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../SyCLoPS%2BERA5/index.html">SyCLoPS events &amp; ERA5 weather</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_diffusion/index.html">Downscaling: Diffusion model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_UNet/index.html">Downscaling: UNet model</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Downscaling: 3-hourly data</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../how_to.html">How to reproduce or extend this work</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../credits.html">Authors and acknowledgements</a></li>
+</ul>
+<h3><a href="https://github.com/philip-brohan/Animations-hackathon">Get the code</a></h3>
+
+<ul>
+<li><a href="https://github.com/philip-brohan/Animations-hackathon"
+           rel="nofollow">Github repository</a></li>
+<li><a href="https://github.com/philip-brohan/Animations-hackathon/archive/master.zip"
+           rel="nofollow">Zip file</a></li>
+</ul>
+
+<h3>Found a bug, or have a suggestion?</h3>
+
+Please <a href="https://github.com/philip-brohan/Animations-hackathon/issues/new">raise an issue</a><br>or <a href="mailto://philip.brohan@metoffice.gov.uk">contact Philip</a>.
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="video.html" title="Make all the frames and combine into a video"
+             >next</a></li>
+        <li class="right" >
+          <a href="index.html" title="Downscaling: 3-hourly data"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Video Diagnostics</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Downscaling: 3-hourly data</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Plot one frame of the 3-hourly precipitation video</a></li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+    </div>
+  </body>
+</html>

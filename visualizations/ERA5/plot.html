@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Plot one frame from the ERA5 video &#8212; Video Diagnostics</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinxdoc.css?v=34905f61" />
+    <script src="../../_static/documentation_options.js?v=d45e8c67"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Make all the frames and combine into a video" href="video.html" />
+    <link rel="prev" title="Assemble data for the ERA5 video" href="data.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="video.html" title="Make all the frames and combine into a video"
+             accesskey="N">next</a></li>
+        <li class="right" >
+          <a href="data.html" title="Assemble data for the ERA5 video"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Video Diagnostics</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">ERA5 in video</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Plot one frame from the ERA5 video</a></li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <section id="plot-one-frame-from-the-era5-video">
+<h1>Plot one frame from the ERA5 video<a class="headerlink" href="#plot-one-frame-from-the-era5-video" title="Link to this heading">¶</a></h1>
+<p>The video shows temperature, wind, and precipitation. Getting three variables into one image requires some care in presentation, particularly in the choice of colours used.</p>
+<ul class="simple">
+<li><p>The temperature is a colour map. It is quantile normalized - that is, the temperature field is scaled so that its distribution is flat - this means that the image shows the same amount of each colour. Also, the temperatures are adjusted to enhance the weather variability, and suppress the climatological variability and the diurnal cycle (the temperature anomalies are doubled, and the diurnal cycle reduced to 1/4 of its real size). This allows diurnal variability, the annual cycle, fixed effects like orography and the Gulf Stream, and weather-timescale variability, all to be shown in the same plot, without any one component dominating.</p></li>
+<li><p>Precipitation is only shown where it exceeds a threshold value (very light precipitation is missing). It is plotted on a log scale, using the ‘algae’ colour scale from <a class="reference external" href="https://matplotlib.org/cmocean/">cmocean</a>, adjusted to taper to transparency at the bottom end.</p></li>
+<li><p>Wind is shown as advected speckles - a random field advected along with the wind vectors - this turns the speckles into stripes in the direction of the wind. They can be made to move from frame to frame by advecting most them a little more each time-step (and resetting a few of them to zero advection). This is plotted by adding the wind field to the temperature and precipitation fields before plotting them. The field has mean zero, so it has no average effect, but it perturbs the other fields in a way which shows the wind structure.</p></li>
+</ul>
+<p>Script to make a single frame:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python</span>
+
+<span class="c1"># Atmospheric state - near-surface temperature, wind, and precip.</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">get_data.ERA5_hourly.ERA5_hourly</span><span class="w"> </span><span class="kn">import</span> <span class="n">load</span><span class="p">,</span> <span class="n">get_land_mask</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">datetime</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pickle</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">iris</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.backends.backend_agg</span><span class="w"> </span><span class="kn">import</span> <span class="n">FigureCanvasAgg</span> <span class="k">as</span> <span class="n">FigureCanvas</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.figure</span><span class="w"> </span><span class="kn">import</span> <span class="n">Figure</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.patches</span><span class="w"> </span><span class="kn">import</span> <span class="n">Rectangle</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.lines</span><span class="w"> </span><span class="kn">import</span> <span class="n">Line2D</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="kn">import</span> <span class="n">qcut</span>
+
+<span class="c1"># Fix dask SPICE bug</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">dask</span>
+
+<span class="n">dask</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">scheduler</span><span class="o">=</span><span class="s2">&quot;single-threaded&quot;</span><span class="p">)</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+
+<span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">()</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--year&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Year&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--month&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Integer month&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--day&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Day of month&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--hour&quot;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Time of day (0 to 23.99)&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--pole_latitude&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Latitude of projection pole&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="mi">90</span><span class="p">,</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--pole_longitude&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Longitude of projection pole&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="mi">180</span><span class="p">,</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--npg_longitude&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Longitude of view centre&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--zoom&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Scale factor for viewport (1=global)&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--opdir&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Directory for output files&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/AnimH/visualizations/ERA5&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SCRATCH&quot;</span><span class="p">),</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--zfile&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Noise pickle file name&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/AnimH/visualizations/z.pkl&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SCRATCH&quot;</span><span class="p">),</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--debug&quot;</span><span class="p">,</span>
+    <span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">opdir</span><span class="p">):</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">opdir</span><span class="p">)</span>
+
+
+<span class="n">dte</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">day</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">hour</span><span class="p">),</span> <span class="nb">int</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">hour</span> <span class="o">%</span> <span class="mi">1</span> <span class="o">*</span> <span class="mi">60</span><span class="p">)</span>
+<span class="p">)</span>
+
+
+<span class="c1"># Remap the precipitation to standardise the distribution</span>
+<span class="c1"># Normalise a precip field to fixed quantiles</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">normalise_precip</span><span class="p">(</span><span class="n">p</span><span class="p">):</span>
+    <span class="n">res</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;=</span> <span class="mf">6.68e-5</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.79</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">7.77e-5</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.81</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">9.25e-5</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.83</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">1.11e-4</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.85</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">1.35e-4</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.87</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">1.68e-4</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.89</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">2.16e-4</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.91</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">2.94e-4</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.93</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">4.30e-4</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.95</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">7.11e-4</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.97</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">0.1</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.99</span>
+    <span class="k">return</span> <span class="n">res</span>
+
+
+<span class="c1"># Remap the temperature similarly</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">normalise_t2m</span><span class="p">(</span><span class="n">p</span><span class="p">):</span>
+    <span class="n">res</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">-=</span> <span class="mi">3</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">300.10</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.95</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">299.9</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.90</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">298.9</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.85</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">297.5</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.80</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">295.7</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.75</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">293.5</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.70</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">290.1</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.65</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">287.6</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.60</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">283.7</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.55</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">280.2</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.50</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">277.2</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.45</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">274.4</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.40</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">272.3</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.35</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">268.3</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.30</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">261.4</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.25</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">254.6</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.20</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">249.1</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.15</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">244.9</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.10</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">240.5</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.05</span>
+    <span class="n">res</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">res</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">0.95</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">return</span> <span class="n">res</span>
+
+
+<span class="c1"># Scale down the latitudinal variation in temperature</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">damp_lat</span><span class="p">(</span><span class="n">sst</span><span class="p">,</span> <span class="n">factor</span><span class="o">=</span><span class="mf">0.25</span><span class="p">):</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">sst</span><span class="o">.</span><span class="n">shape</span>
+    <span class="n">mt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">sst</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">lat_i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+        <span class="n">lmt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">sst</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">lat_i</span><span class="p">,</span> <span class="p">:])</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">lmt</span><span class="p">):</span>
+            <span class="n">sst</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">lat_i</span><span class="p">,</span> <span class="p">:]</span> <span class="o">-=</span> <span class="p">(</span><span class="n">lmt</span> <span class="o">-</span> <span class="n">mt</span><span class="p">)</span> <span class="o">*</span> <span class="n">factor</span>
+    <span class="k">return</span> <span class="n">sst</span>
+
+
+<span class="c1"># Load data in a range of +- 5 days</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_around</span><span class="p">(</span><span class="n">var</span><span class="p">,</span> <span class="n">dte</span><span class="p">,</span> <span class="n">hours</span><span class="o">=</span><span class="mi">5</span> <span class="o">*</span> <span class="mi">24</span><span class="p">):</span>
+    <span class="n">f</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">hr</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">hours</span><span class="p">):</span>
+        <span class="n">dtl</span> <span class="o">=</span> <span class="n">dte</span> <span class="o">-</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="n">hours</span> <span class="o">//</span> <span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="n">hr</span><span class="p">)</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="n">var</span><span class="p">,</span> <span class="n">dtl</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">dtl</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">dtl</span><span class="o">.</span><span class="n">day</span><span class="p">,</span> <span class="n">dtl</span><span class="o">.</span><span class="n">hour</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">cube</span><span class="o">.</span><span class="n">CubeList</span><span class="p">([</span><span class="n">t</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+    <span class="n">f</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">merge</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">f</span>
+
+
+<span class="c1">#  In the  temperature field, damp the diurnal cycle, and</span>
+<span class="c1">#  boost the short-timescale variability. Load the</span>
+<span class="c1">#  recent data to calculate this.</span>
+<span class="n">recent_t</span> <span class="o">=</span> <span class="n">load_around</span><span class="p">(</span><span class="s2">&quot;2m_temperature&quot;</span><span class="p">,</span> <span class="n">dte</span><span class="p">)</span>
+<span class="n">tavg</span> <span class="o">=</span> <span class="n">recent_t</span><span class="o">.</span><span class="n">collapsed</span><span class="p">(</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">MEAN</span><span class="p">)</span>
+<span class="n">davg</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="n">dcount</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">ct</span> <span class="o">=</span> <span class="n">dte</span> <span class="o">-</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">2</span> <span class="o">*</span> <span class="mi">24</span><span class="p">)</span>
+<span class="n">et</span> <span class="o">=</span> <span class="n">dte</span> <span class="o">+</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">2</span> <span class="o">*</span> <span class="mi">24</span><span class="p">)</span>
+<span class="k">while</span> <span class="n">ct</span> <span class="o">&lt;</span> <span class="n">et</span><span class="p">:</span>
+    <span class="c1"># try:</span>
+    <span class="k">if</span> <span class="n">davg</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">davg</span> <span class="o">=</span> <span class="n">recent_t</span><span class="o">.</span><span class="n">interpolate</span><span class="p">(</span>
+            <span class="p">[(</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="n">ct</span><span class="p">)],</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">extrapolation_mode</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">dcount</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">davg</span><span class="o">.</span><span class="n">data</span> <span class="o">+=</span> <span class="n">recent_t</span><span class="o">.</span><span class="n">interpolate</span><span class="p">(</span>
+            <span class="p">[(</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="n">ct</span><span class="p">)],</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">extrapolation_mode</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">)</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">data</span>
+        <span class="n">dcount</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="c1"># except:</span>
+    <span class="c1">#    pass</span>
+    <span class="n">ct</span> <span class="o">+=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">24</span><span class="p">)</span>
+
+<span class="n">davg</span><span class="o">.</span><span class="n">data</span> <span class="o">/=</span> <span class="n">dcount</span>
+<span class="n">davg</span><span class="o">.</span><span class="n">data</span> <span class="o">-=</span> <span class="n">tavg</span><span class="o">.</span><span class="n">data</span>
+
+<span class="n">t2m</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">&quot;2m_temperature&quot;</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">day</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">hour</span><span class="p">)</span>
+<span class="c1"># Remove the diurnal cycle</span>
+<span class="n">t2m</span><span class="o">.</span><span class="n">data</span> <span class="o">-=</span> <span class="n">davg</span><span class="o">.</span><span class="n">data</span>
+<span class="c1"># Enhance the synoptic variability</span>
+<span class="n">t2m</span><span class="o">.</span><span class="n">data</span> <span class="o">+=</span> <span class="p">(</span><span class="n">t2m</span><span class="o">.</span><span class="n">data</span> <span class="o">-</span> <span class="n">tavg</span><span class="o">.</span><span class="n">data</span><span class="p">)</span> <span class="o">*</span> <span class="mf">1.0</span>
+<span class="c1"># Add back a reduced diurnal cycle</span>
+<span class="n">t2m</span><span class="o">.</span><span class="n">data</span> <span class="o">+=</span> <span class="n">davg</span><span class="o">.</span><span class="n">data</span> <span class="o">*</span> <span class="mf">0.25</span>
+<span class="n">t2m</span> <span class="o">=</span> <span class="n">normalise_t2m</span><span class="p">(</span><span class="n">t2m</span><span class="p">)</span>
+<span class="c1"># Damp the latitude variation</span>
+<span class="c1"># t2m=damp_lat(t2m,factor=0.25)</span>
+
+<span class="n">u10m</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">&quot;10m_u_component_of_wind&quot;</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">day</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">hour</span><span class="p">)</span>
+<span class="n">v10m</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">&quot;10m_v_component_of_wind&quot;</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">day</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">hour</span><span class="p">)</span>
+<span class="n">precip</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">&quot;total_precipitation&quot;</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">day</span><span class="p">,</span> <span class="n">dte</span><span class="o">.</span><span class="n">hour</span><span class="p">)</span>
+<span class="n">precip</span> <span class="o">=</span> <span class="n">normalise_precip</span><span class="p">(</span><span class="n">precip</span><span class="p">)</span>
+
+<span class="n">mask</span> <span class="o">=</span> <span class="n">get_land_mask</span><span class="p">()</span>
+
+
+<span class="c1"># Define the figure (page size, background color, resolution, ...</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">Figure</span><span class="p">(</span>
+    <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mf">19.2</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="mf">10.8</span> <span class="o">*</span> <span class="mi">2</span><span class="p">),</span>  <span class="c1"># Width, Height (inches)</span>
+    <span class="n">dpi</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">facecolor</span><span class="o">=</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">edgecolor</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">linewidth</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+    <span class="n">frameon</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>  <span class="c1"># Don&#39;t draw a frame</span>
+    <span class="n">subplotpars</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">tight_layout</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">fig</span><span class="o">.</span><span class="n">set_frameon</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+<span class="c1"># Attach a canvas</span>
+<span class="n">canvas</span> <span class="o">=</span> <span class="n">FigureCanvas</span><span class="p">(</span><span class="n">fig</span><span class="p">)</span>
+
+<span class="c1"># Projection for plotting</span>
+<span class="n">cs</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">coord_systems</span><span class="o">.</span><span class="n">RotatedGeogCS</span><span class="p">(</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">pole_latitude</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">pole_longitude</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">npg_longitude</span>
+<span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">plot_cube</span><span class="p">(</span><span class="n">resolution</span><span class="p">,</span> <span class="n">xmin</span><span class="p">,</span> <span class="n">xmax</span><span class="p">,</span> <span class="n">ymin</span><span class="p">,</span> <span class="n">ymax</span><span class="p">):</span>
+
+    <span class="n">lat_values</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">ymin</span><span class="p">,</span> <span class="n">ymax</span> <span class="o">+</span> <span class="n">resolution</span><span class="p">,</span> <span class="n">resolution</span><span class="p">)</span>
+    <span class="n">latitude</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">coords</span><span class="o">.</span><span class="n">DimCoord</span><span class="p">(</span>
+        <span class="n">lat_values</span><span class="p">,</span> <span class="n">standard_name</span><span class="o">=</span><span class="s2">&quot;latitude&quot;</span><span class="p">,</span> <span class="n">units</span><span class="o">=</span><span class="s2">&quot;degrees_north&quot;</span><span class="p">,</span> <span class="n">coord_system</span><span class="o">=</span><span class="n">cs</span>
+    <span class="p">)</span>
+    <span class="n">lon_values</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">xmin</span><span class="p">,</span> <span class="n">xmax</span> <span class="o">+</span> <span class="n">resolution</span><span class="p">,</span> <span class="n">resolution</span><span class="p">)</span>
+    <span class="n">longitude</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">coords</span><span class="o">.</span><span class="n">DimCoord</span><span class="p">(</span>
+        <span class="n">lon_values</span><span class="p">,</span> <span class="n">standard_name</span><span class="o">=</span><span class="s2">&quot;longitude&quot;</span><span class="p">,</span> <span class="n">units</span><span class="o">=</span><span class="s2">&quot;degrees_east&quot;</span><span class="p">,</span> <span class="n">coord_system</span><span class="o">=</span><span class="n">cs</span>
+    <span class="p">)</span>
+    <span class="n">dummy_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">lat_values</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">lon_values</span><span class="p">)))</span>
+    <span class="n">plot_cube</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">cube</span><span class="o">.</span><span class="n">Cube</span><span class="p">(</span>
+        <span class="n">dummy_data</span><span class="p">,</span> <span class="n">dim_coords_and_dims</span><span class="o">=</span><span class="p">[(</span><span class="n">latitude</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="n">longitude</span><span class="p">,</span> <span class="mi">1</span><span class="p">)]</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">plot_cube</span>
+
+
+<span class="c1"># Make the wind noise</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">wind_field</span><span class="p">(</span><span class="n">uw</span><span class="p">,</span> <span class="n">vw</span><span class="p">,</span> <span class="n">zf</span><span class="p">,</span> <span class="n">sequence</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">iterations</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">epsilon</span><span class="o">=</span><span class="mf">0.003</span><span class="p">,</span> <span class="n">sscale</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+    <span class="c1"># Random field as the source of the distortions</span>
+    <span class="n">z</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="n">zf</span><span class="p">,</span> <span class="s2">&quot;rb&quot;</span><span class="p">))</span>
+    <span class="n">z</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">uw</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">())</span>
+    <span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span>
+    <span class="c1"># Each point in this field has an index location (i,j)</span>
+    <span class="c1">#  and a real (x,y) position</span>
+    <span class="n">xmin</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">uw</span><span class="o">.</span><span class="n">coords</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">points</span><span class="p">)</span>
+    <span class="n">xmax</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">uw</span><span class="o">.</span><span class="n">coords</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">points</span><span class="p">)</span>
+    <span class="n">ymin</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">uw</span><span class="o">.</span><span class="n">coords</span><span class="p">()[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">points</span><span class="p">)</span>
+    <span class="n">ymax</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">uw</span><span class="o">.</span><span class="n">coords</span><span class="p">()[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">points</span><span class="p">)</span>
+
+    <span class="c1"># Convert between index and real positions</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">i_to_x</span><span class="p">(</span><span class="n">i</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">xmin</span> <span class="o">+</span> <span class="p">(</span><span class="n">i</span> <span class="o">/</span> <span class="n">width</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">xmax</span> <span class="o">-</span> <span class="n">xmin</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">j_to_y</span><span class="p">(</span><span class="n">j</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ymin</span> <span class="o">+</span> <span class="p">(</span><span class="n">j</span> <span class="o">/</span> <span class="n">height</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">ymax</span> <span class="o">-</span> <span class="n">ymin</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">x_to_i</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">minimum</span><span class="p">(</span>
+            <span class="n">width</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floor</span><span class="p">((</span><span class="n">x</span> <span class="o">-</span> <span class="n">xmin</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">xmax</span> <span class="o">-</span> <span class="n">xmin</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">width</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))),</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">y_to_j</span><span class="p">(</span><span class="n">y</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">minimum</span><span class="p">(</span>
+            <span class="n">height</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floor</span><span class="p">((</span><span class="n">y</span> <span class="o">-</span> <span class="n">ymin</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">ymax</span> <span class="o">-</span> <span class="n">ymin</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">height</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))),</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+
+    <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mgrid</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="n">width</span><span class="p">,</span> <span class="mi">0</span><span class="p">:</span><span class="n">height</span><span class="p">]</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">i_to_x</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">j_to_y</span><span class="p">(</span><span class="n">j</span><span class="p">)</span>
+    <span class="c1"># Result is a distorted version of the random field</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="c1"># Repeatedly, move the x,y points according to the vector field</span>
+    <span class="c1">#  and update result with the random field at their locations</span>
+    <span class="n">ss</span> <span class="o">=</span> <span class="n">uw</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">ss</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">uw</span><span class="o">.</span><span class="n">data</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">vw</span><span class="o">.</span><span class="n">data</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">sequence</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">startsi</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">iterations</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+        <span class="n">endpoints</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">startsi</span><span class="p">,</span> <span class="mi">1</span> <span class="o">+</span> <span class="p">(</span><span class="n">width</span> <span class="o">*</span> <span class="n">height</span><span class="p">)</span> <span class="o">//</span> <span class="nb">len</span><span class="p">(</span><span class="n">startsi</span><span class="p">))</span>
+        <span class="n">endpoints</span> <span class="o">+=</span> <span class="n">sequence</span> <span class="o">%</span> <span class="n">iterations</span>
+        <span class="n">endpoints</span><span class="p">[</span><span class="n">endpoints</span> <span class="o">&gt;=</span> <span class="n">iterations</span><span class="p">]</span> <span class="o">-=</span> <span class="n">iterations</span>
+        <span class="n">startpoints</span> <span class="o">=</span> <span class="n">endpoints</span> <span class="o">-</span> <span class="mi">25</span>
+        <span class="n">startpoints</span><span class="p">[</span><span class="n">startpoints</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">iterations</span>
+        <span class="n">endpoints</span> <span class="o">=</span> <span class="n">endpoints</span><span class="p">[</span><span class="mi">0</span> <span class="p">:</span> <span class="p">(</span><span class="n">width</span> <span class="o">*</span> <span class="n">height</span><span class="p">)]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span>
+        <span class="n">startpoints</span> <span class="o">=</span> <span class="n">startpoints</span><span class="p">[</span><span class="mi">0</span> <span class="p">:</span> <span class="p">(</span><span class="n">width</span> <span class="o">*</span> <span class="n">height</span><span class="p">)]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">endpoints</span> <span class="o">=</span> <span class="n">iterations</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="n">startpoints</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">iterations</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">+=</span> <span class="n">epsilon</span> <span class="o">*</span> <span class="n">vw</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span>
+        <span class="n">x</span><span class="p">[</span><span class="n">x</span> <span class="o">&gt;</span> <span class="n">xmax</span><span class="p">]</span> <span class="o">=</span> <span class="n">xmax</span>
+        <span class="n">x</span><span class="p">[</span><span class="n">x</span> <span class="o">&lt;</span> <span class="n">xmin</span><span class="p">]</span> <span class="o">=</span> <span class="n">xmin</span>
+        <span class="n">y</span> <span class="o">+=</span> <span class="n">epsilon</span> <span class="o">*</span> <span class="n">uw</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span>
+        <span class="n">y</span><span class="p">[</span><span class="n">y</span> <span class="o">&gt;</span> <span class="n">ymax</span><span class="p">]</span> <span class="o">=</span> <span class="n">y</span><span class="p">[</span><span class="n">y</span> <span class="o">&gt;</span> <span class="n">ymax</span><span class="p">]</span> <span class="o">-</span> <span class="n">ymax</span> <span class="o">+</span> <span class="n">ymin</span>
+        <span class="n">y</span><span class="p">[</span><span class="n">y</span> <span class="o">&lt;</span> <span class="n">ymin</span><span class="p">]</span> <span class="o">=</span> <span class="n">y</span><span class="p">[</span><span class="n">y</span> <span class="o">&lt;</span> <span class="n">ymin</span><span class="p">]</span> <span class="o">-</span> <span class="n">ymin</span> <span class="o">+</span> <span class="n">ymax</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">x_to_i</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">j</span> <span class="o">=</span> <span class="n">y_to_j</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+        <span class="n">update</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">data</span> <span class="o">*</span> <span class="n">ss</span><span class="o">.</span><span class="n">data</span> <span class="o">/</span> <span class="n">sscale</span>
+        <span class="n">update</span><span class="p">[(</span><span class="n">endpoints</span> <span class="o">&gt;</span> <span class="n">startpoints</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">((</span><span class="n">k</span> <span class="o">&gt;</span> <span class="n">endpoints</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">k</span> <span class="o">&lt;</span> <span class="n">startpoints</span><span class="p">))]</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">update</span><span class="p">[(</span><span class="n">startpoints</span> <span class="o">&gt;</span> <span class="n">endpoints</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">((</span><span class="n">k</span> <span class="o">&gt;</span> <span class="n">endpoints</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">k</span> <span class="o">&lt;</span> <span class="n">startpoints</span><span class="p">))]</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">+=</span> <span class="n">update</span>
+    <span class="k">return</span> <span class="n">result</span>
+
+
+<span class="n">wind_pc</span> <span class="o">=</span> <span class="n">plot_cube</span><span class="p">(</span>
+    <span class="mf">0.2</span><span class="p">,</span> <span class="o">-</span><span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="o">-</span><span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span>
+<span class="p">)</span>
+<span class="n">rw</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">cartography</span><span class="o">.</span><span class="n">rotate_winds</span><span class="p">(</span><span class="n">u10m</span><span class="p">,</span> <span class="n">v10m</span><span class="p">,</span> <span class="n">cs</span><span class="p">)</span>
+<span class="n">u10m</span> <span class="o">=</span> <span class="n">rw</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">wind_pc</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">())</span>
+<span class="n">v10m</span> <span class="o">=</span> <span class="n">rw</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">wind_pc</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">())</span>
+<span class="n">seq</span> <span class="o">=</span> <span class="p">(</span><span class="n">dte</span> <span class="o">-</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2000</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">total_seconds</span><span class="p">()</span> <span class="o">/</span> <span class="mi">3600</span>
+<span class="n">wind_noise_field</span> <span class="o">=</span> <span class="n">wind_field</span><span class="p">(</span>
+    <span class="n">u10m</span><span class="p">,</span> <span class="n">v10m</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">zfile</span><span class="p">,</span> <span class="n">sequence</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">seq</span> <span class="o">*</span> <span class="mi">5</span><span class="p">),</span> <span class="n">epsilon</span><span class="o">=</span><span class="mf">0.01</span>
+<span class="p">)</span>
+
+<span class="c1"># Define an axes to contain the plot. In this case our axes covers</span>
+<span class="c1">#  the whole figure</span>
+<span class="n">ax</span> <span class="o">=</span> <span class="n">fig</span><span class="o">.</span><span class="n">add_axes</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_axis_off</span><span class="p">()</span>  <span class="c1"># Don&#39;t want surrounding x and y axis</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">add_patch</span><span class="p">(</span>  <span class="c1"># Background</span>
+    <span class="n">Rectangle</span><span class="p">((</span><span class="o">-</span><span class="mi">180</span><span class="p">,</span> <span class="o">-</span><span class="mi">90</span><span class="p">),</span> <span class="mi">360</span><span class="p">,</span> <span class="mi">180</span><span class="p">,</span> <span class="n">facecolor</span><span class="o">=</span><span class="p">(</span><span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.9</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">fill</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="p">)</span>
+
+<span class="c1"># Lat and lon range (in rotated-pole coordinates) for plot</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_xlim</span><span class="p">(</span><span class="o">-</span><span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span><span class="o">-</span><span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_aspect</span><span class="p">(</span><span class="s2">&quot;auto&quot;</span><span class="p">)</span>
+
+<span class="c1"># Background</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">add_patch</span><span class="p">(</span><span class="n">Rectangle</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">facecolor</span><span class="o">=</span><span class="p">(</span><span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">fill</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+
+<span class="c1"># Draw lines of latitude and longitude</span>
+<span class="k">for</span> <span class="n">lat</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">90</span><span class="p">,</span> <span class="mi">95</span><span class="p">,</span> <span class="mi">5</span><span class="p">):</span>
+    <span class="n">lwd</span> <span class="o">=</span> <span class="mf">0.75</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">lon</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">180</span><span class="p">,</span> <span class="mi">181</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
+        <span class="n">rp</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">cartography</span><span class="o">.</span><span class="n">rotate_pole</span><span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lon</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lat</span><span class="p">),</span> <span class="n">args</span><span class="o">.</span><span class="n">pole_longitude</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">pole_latitude</span>
+        <span class="p">)</span>
+        <span class="n">nx</span> <span class="o">=</span> <span class="n">rp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">args</span><span class="o">.</span><span class="n">npg_longitude</span>
+        <span class="k">if</span> <span class="n">nx</span> <span class="o">&gt;</span> <span class="mi">180</span><span class="p">:</span>
+            <span class="n">nx</span> <span class="o">-=</span> <span class="mi">360</span>
+        <span class="n">ny</span> <span class="o">=</span> <span class="n">rp</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">nx</span> <span class="o">-</span> <span class="n">x</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mi">10</span> <span class="ow">and</span> <span class="nb">abs</span><span class="p">(</span><span class="n">ny</span> <span class="o">-</span> <span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mi">10</span><span class="p">):</span>
+            <span class="n">x</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nx</span><span class="p">)</span>
+            <span class="n">y</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ny</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">add_line</span><span class="p">(</span>
+                <span class="n">Line2D</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">linewidth</span><span class="o">=</span><span class="n">lwd</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="p">(</span><span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">add_line</span><span class="p">(</span><span class="n">Line2D</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">linewidth</span><span class="o">=</span><span class="n">lwd</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="p">(</span><span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">10</span><span class="p">))</span>
+
+<span class="k">for</span> <span class="n">lon</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">180</span><span class="p">,</span> <span class="mi">185</span><span class="p">,</span> <span class="mi">5</span><span class="p">):</span>
+    <span class="n">lwd</span> <span class="o">=</span> <span class="mf">0.75</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">lat</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">90</span><span class="p">,</span> <span class="mi">90</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
+        <span class="n">rp</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">cartography</span><span class="o">.</span><span class="n">rotate_pole</span><span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lon</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">lat</span><span class="p">),</span> <span class="n">args</span><span class="o">.</span><span class="n">pole_longitude</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">pole_latitude</span>
+        <span class="p">)</span>
+        <span class="n">nx</span> <span class="o">=</span> <span class="n">rp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">args</span><span class="o">.</span><span class="n">npg_longitude</span>
+        <span class="k">if</span> <span class="n">nx</span> <span class="o">&gt;</span> <span class="mi">180</span><span class="p">:</span>
+            <span class="n">nx</span> <span class="o">-=</span> <span class="mi">360</span>
+        <span class="n">ny</span> <span class="o">=</span> <span class="n">rp</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">nx</span> <span class="o">-</span> <span class="n">x</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mi">10</span> <span class="ow">and</span> <span class="nb">abs</span><span class="p">(</span><span class="n">ny</span> <span class="o">-</span> <span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mi">10</span><span class="p">):</span>
+            <span class="n">x</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nx</span><span class="p">)</span>
+            <span class="n">y</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ny</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">add_line</span><span class="p">(</span>
+                <span class="n">Line2D</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">linewidth</span><span class="o">=</span><span class="n">lwd</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="p">(</span><span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">add_line</span><span class="p">(</span><span class="n">Line2D</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">linewidth</span><span class="o">=</span><span class="n">lwd</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="p">(</span><span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">10</span><span class="p">))</span>
+
+<span class="c1"># Plot the land mask</span>
+<span class="n">mask_pc</span> <span class="o">=</span> <span class="n">plot_cube</span><span class="p">(</span>
+    <span class="mf">0.05</span><span class="p">,</span> <span class="o">-</span><span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="o">-</span><span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span>
+<span class="p">)</span>
+<span class="n">mask</span> <span class="o">=</span> <span class="n">mask</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">mask_pc</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">())</span>
+<span class="n">lats</span> <span class="o">=</span> <span class="n">mask</span><span class="o">.</span><span class="n">coord</span><span class="p">(</span><span class="s2">&quot;latitude&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">points</span>
+<span class="n">lons</span> <span class="o">=</span> <span class="n">mask</span><span class="o">.</span><span class="n">coord</span><span class="p">(</span><span class="s2">&quot;longitude&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">points</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span>
+    <span class="n">mask</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
+    <span class="n">extent</span><span class="o">=</span><span class="p">[</span><span class="n">lons</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">lons</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">lats</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">lats</span><span class="o">.</span><span class="n">max</span><span class="p">()],</span>
+    <span class="n">cmap</span><span class="o">=</span><span class="n">matplotlib</span><span class="o">.</span><span class="n">colors</span><span class="o">.</span><span class="n">ListedColormap</span><span class="p">(((</span><span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">,</span> <span class="mi">1</span><span class="p">))),</span>
+    <span class="n">vmin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">vmax</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">alpha</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">zorder</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+    <span class="n">origin</span><span class="o">=</span><span class="s2">&quot;lower&quot;</span><span class="p">,</span>
+    <span class="n">aspect</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="c1"># Plot the T2M</span>
+<span class="n">t2m_pc</span> <span class="o">=</span> <span class="n">plot_cube</span><span class="p">(</span>
+    <span class="mf">0.05</span><span class="p">,</span> <span class="o">-</span><span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="o">-</span><span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span>
+<span class="p">)</span>
+<span class="n">t2m</span> <span class="o">=</span> <span class="n">t2m</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">t2m_pc</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">())</span>
+<span class="c1"># Adjust to show the wind</span>
+<span class="n">wscale</span> <span class="o">=</span> <span class="mi">200</span>
+<span class="n">s</span> <span class="o">=</span> <span class="n">wind_noise_field</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span>
+<span class="n">wind_noise_field</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">qcut</span><span class="p">(</span>
+        <span class="n">wind_noise_field</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">wscale</span><span class="p">,</span> <span class="n">labels</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">duplicates</span><span class="o">=</span><span class="s2">&quot;drop&quot;</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="o">-</span> <span class="p">(</span><span class="n">wscale</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+<span class="p">)</span>
+
+<span class="c1"># Plot as a colour map</span>
+<span class="n">wnf</span> <span class="o">=</span> <span class="n">wind_noise_field</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">t2m</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">())</span>
+<span class="n">t2m_img</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span>
+    <span class="n">t2m</span><span class="o">.</span><span class="n">data</span> <span class="o">*</span> <span class="mi">1000</span> <span class="o">+</span> <span class="n">wnf</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
+    <span class="n">extent</span><span class="o">=</span><span class="p">[</span><span class="n">lons</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">lons</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">lats</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">lats</span><span class="o">.</span><span class="n">max</span><span class="p">()],</span>
+    <span class="n">cmap</span><span class="o">=</span><span class="s2">&quot;RdYlBu_r&quot;</span><span class="p">,</span>
+    <span class="n">alpha</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>
+    <span class="n">zorder</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">origin</span><span class="o">=</span><span class="s2">&quot;lower&quot;</span><span class="p">,</span>
+    <span class="n">aspect</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Plot the precip</span>
+<span class="n">precip_pc</span> <span class="o">=</span> <span class="n">plot_cube</span><span class="p">(</span>
+    <span class="mf">0.25</span><span class="p">,</span> <span class="o">-</span><span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="o">-</span><span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span>
+<span class="p">)</span>
+<span class="n">precip</span> <span class="o">=</span> <span class="n">precip</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">precip_pc</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">())</span>
+<span class="n">wnf</span> <span class="o">=</span> <span class="n">wind_noise_field</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">precip</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">())</span>
+<span class="n">precip</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">precip</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">0.8</span><span class="p">]</span> <span class="o">+=</span> <span class="n">wnf</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">precip</span><span class="o">.</span><span class="n">data</span> <span class="o">&gt;</span> <span class="mf">0.8</span><span class="p">]</span> <span class="o">/</span> <span class="mi">3000</span>
+<span class="n">precip</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">precip</span><span class="o">.</span><span class="n">data</span> <span class="o">&lt;</span> <span class="mf">0.8</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.8</span>
+<span class="n">cols</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">ci</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+    <span class="n">cols</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">ci</span> <span class="o">/</span> <span class="mi">100</span><span class="p">])</span>
+<span class="n">precip_img</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span>
+    <span class="n">precip</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
+    <span class="n">extent</span><span class="o">=</span><span class="p">[</span><span class="n">lons</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">lons</span><span class="o">.</span><span class="n">max</span><span class="p">(),</span> <span class="n">lats</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">lats</span><span class="o">.</span><span class="n">max</span><span class="p">()],</span>
+    <span class="n">cmap</span><span class="o">=</span><span class="n">matplotlib</span><span class="o">.</span><span class="n">colors</span><span class="o">.</span><span class="n">ListedColormap</span><span class="p">(</span><span class="n">cols</span><span class="p">),</span>
+    <span class="n">alpha</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span>
+    <span class="n">zorder</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span>
+    <span class="n">origin</span><span class="o">=</span><span class="s2">&quot;lower&quot;</span><span class="p">,</span>
+    <span class="n">aspect</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="c1"># Label with the date</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">text</span><span class="p">(</span>
+    <span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span> <span class="o">-</span> <span class="p">(</span><span class="mi">360</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.009</span><span class="p">,</span>
+    <span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span> <span class="o">-</span> <span class="p">(</span><span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.016</span><span class="p">,</span>
+    <span class="s2">&quot;</span><span class="si">%04d</span><span class="s2">-</span><span class="si">%02d</span><span class="s2">-</span><span class="si">%02d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">day</span><span class="p">),</span>
+    <span class="n">horizontalalignment</span><span class="o">=</span><span class="s2">&quot;right&quot;</span><span class="p">,</span>
+    <span class="n">verticalalignment</span><span class="o">=</span><span class="s2">&quot;top&quot;</span><span class="p">,</span>
+    <span class="n">color</span><span class="o">=</span><span class="s2">&quot;black&quot;</span><span class="p">,</span>
+    <span class="n">bbox</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+        <span class="n">facecolor</span><span class="o">=</span><span class="p">(</span><span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s2">&quot;black&quot;</span><span class="p">,</span> <span class="n">boxstyle</span><span class="o">=</span><span class="s2">&quot;round&quot;</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="mf">0.5</span>
+    <span class="p">),</span>
+    <span class="n">size</span><span class="o">=</span><span class="mi">28</span><span class="p">,</span>
+    <span class="n">clip_on</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">zorder</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Render the figure as a png</span>
+<span class="n">opfile</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/</span><span class="si">%04d%02d%02d%02d%02d</span><span class="s2">.png&quot;</span> <span class="o">%</span> <span class="p">(</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">opdir</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">year</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">month</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">day</span><span class="p">,</span>
+    <span class="nb">int</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">hour</span><span class="p">),</span>
+    <span class="nb">int</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">hour</span> <span class="o">%</span> <span class="mi">1</span> <span class="o">*</span> <span class="mi">60</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">debug</span><span class="p">:</span>
+    <span class="n">opfile</span> <span class="o">=</span> <span class="s2">&quot;debug.png&quot;</span>
+<span class="n">fig</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">opfile</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The script requires a pre-calculated (and saved) noise field (the speckles for the wind). This has to be pre-calculated as it needs to be the same for all frames:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env python</span>
+
+<span class="c1"># Make a fixed noise field for wind-map plots.</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">iris</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">iris.cube</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">iris.coords</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">iris.coord_systems</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pickle</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+
+<span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">()</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--resolution&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Resolution for plot grid&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--zoom&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Scale factor for viewport (1=global)&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--opfile&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output (pickle) file name&quot;</span><span class="p">,</span>
+    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">/AnimH/visualizations/z.pkl&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SCRATCH&quot;</span><span class="p">),</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+
+<span class="c1"># Nominal projection</span>
+<span class="n">cs</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">coord_systems</span><span class="o">.</span><span class="n">RotatedGeogCS</span><span class="p">(</span><span class="mi">90</span><span class="p">,</span> <span class="mi">180</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">plot_cube</span><span class="p">(</span><span class="n">resolution</span><span class="p">,</span> <span class="n">xmin</span><span class="p">,</span> <span class="n">xmax</span><span class="p">,</span> <span class="n">ymin</span><span class="p">,</span> <span class="n">ymax</span><span class="p">):</span>
+
+    <span class="n">lat_values</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">ymin</span><span class="p">,</span> <span class="n">ymax</span> <span class="o">+</span> <span class="n">resolution</span><span class="p">,</span> <span class="n">resolution</span><span class="p">)</span>
+    <span class="n">latitude</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">coords</span><span class="o">.</span><span class="n">DimCoord</span><span class="p">(</span>
+        <span class="n">lat_values</span><span class="p">,</span> <span class="n">standard_name</span><span class="o">=</span><span class="s2">&quot;latitude&quot;</span><span class="p">,</span> <span class="n">units</span><span class="o">=</span><span class="s2">&quot;degrees_north&quot;</span><span class="p">,</span> <span class="n">coord_system</span><span class="o">=</span><span class="n">cs</span>
+    <span class="p">)</span>
+    <span class="n">lon_values</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">xmin</span><span class="p">,</span> <span class="n">xmax</span> <span class="o">+</span> <span class="n">resolution</span><span class="p">,</span> <span class="n">resolution</span><span class="p">)</span>
+    <span class="n">longitude</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">coords</span><span class="o">.</span><span class="n">DimCoord</span><span class="p">(</span>
+        <span class="n">lon_values</span><span class="p">,</span> <span class="n">standard_name</span><span class="o">=</span><span class="s2">&quot;longitude&quot;</span><span class="p">,</span> <span class="n">units</span><span class="o">=</span><span class="s2">&quot;degrees_east&quot;</span><span class="p">,</span> <span class="n">coord_system</span><span class="o">=</span><span class="n">cs</span>
+    <span class="p">)</span>
+    <span class="n">dummy_data</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">lat_values</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">lon_values</span><span class="p">)))</span>
+    <span class="n">plot_cube</span> <span class="o">=</span> <span class="n">iris</span><span class="o">.</span><span class="n">cube</span><span class="o">.</span><span class="n">Cube</span><span class="p">(</span>
+        <span class="n">dummy_data</span><span class="p">,</span> <span class="n">dim_coords_and_dims</span><span class="o">=</span><span class="p">[(</span><span class="n">latitude</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="n">longitude</span><span class="p">,</span> <span class="mi">1</span><span class="p">)]</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">plot_cube</span>
+
+
+<span class="n">z</span> <span class="o">=</span> <span class="n">plot_cube</span><span class="p">(</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">resolution</span><span class="p">,</span> <span class="o">-</span><span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="o">-</span><span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span> <span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span>
+<span class="p">)</span>
+<span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span>
+<span class="n">z</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span> <span class="o">-</span> <span class="mf">0.5</span>
+
+<span class="n">z2</span> <span class="o">=</span> <span class="n">plot_cube</span><span class="p">(</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">resolution</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span>
+    <span class="o">-</span><span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span>
+    <span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span>
+    <span class="o">-</span><span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span>
+    <span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span> <span class="o">=</span> <span class="n">z2</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span>
+<span class="n">z2</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span> <span class="o">-</span> <span class="mf">0.5</span>
+<span class="n">z2</span> <span class="o">=</span> <span class="n">z2</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">())</span>
+<span class="n">z</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">data</span> <span class="o">+</span> <span class="n">z2</span><span class="o">.</span><span class="n">data</span>
+
+<span class="n">z4</span> <span class="o">=</span> <span class="n">plot_cube</span><span class="p">(</span>
+    <span class="n">args</span><span class="o">.</span><span class="n">resolution</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span>
+    <span class="o">-</span><span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span>
+    <span class="mi">180</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span>
+    <span class="o">-</span><span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span>
+    <span class="mi">90</span> <span class="o">/</span> <span class="n">args</span><span class="o">.</span><span class="n">zoom</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span> <span class="o">=</span> <span class="n">z4</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span>
+<span class="n">z4</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">width</span><span class="p">,</span> <span class="n">height</span><span class="p">)</span> <span class="o">-</span> <span class="mf">0.5</span>
+<span class="n">z4</span> <span class="o">=</span> <span class="n">z4</span><span class="o">.</span><span class="n">regrid</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="n">iris</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">Linear</span><span class="p">())</span>
+<span class="n">z</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">data</span> <span class="o">+</span> <span class="n">z4</span><span class="o">.</span><span class="n">data</span> <span class="o">*</span> <span class="mi">100</span>
+
+
+<span class="n">pickle</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">z</span><span class="p">,</span> <span class="nb">open</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">opfile</span><span class="p">,</span> <span class="s2">&quot;wb&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>For the functions to load the data, see the <a class="reference internal" href="data.html"><span class="doc">get-data page</span></a>.</p>
+</section>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../../index.html">
+              <img class="logo" src="../../_static/logo.png" alt="Logo of Video Diagnostics"/>
+            </a></p>
+<h3><a href="../../index.html">Table Of Contents</a></h3>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Near-surface temperature, wind, and precipitation. From the ERA5 Reanalysis</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">ERA5 weather</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../SyCLoPS/index.html">SyCLoPS weather events</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../SyCLoPS%2BERA5/index.html">SyCLoPS events &amp; ERA5 weather</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_diffusion/index.html">Downscaling: Diffusion model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_UNet/index.html">Downscaling: UNet model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Downscaling_3hrly/index.html">Downscaling: 3-hourly data</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../how_to.html">How to reproduce or extend this work</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../credits.html">Authors and acknowledgements</a></li>
+</ul>
+<h3><a href="https://github.com/philip-brohan/Animations-hackathon">Get the code</a></h3>
+
+<ul>
+<li><a href="https://github.com/philip-brohan/Animations-hackathon"
+           rel="nofollow">Github repository</a></li>
+<li><a href="https://github.com/philip-brohan/Animations-hackathon/archive/master.zip"
+           rel="nofollow">Zip file</a></li>
+</ul>
+
+<h3>Found a bug, or have a suggestion?</h3>
+
+Please <a href="https://github.com/philip-brohan/Animations-hackathon/issues/new">raise an issue</a><br>or <a href="mailto://philip.brohan@metoffice.gov.uk">contact Philip</a>.
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="Related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="video.html" title="Make all the frames and combine into a video"
+             >next</a></li>
+        <li class="right" >
+          <a href="data.html" title="Assemble data for the ERA5 video"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Video Diagnostics</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >ERA5 in video</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Plot one frame from the ERA5 video</a></li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+    </div>
+  </body>
+</html>
