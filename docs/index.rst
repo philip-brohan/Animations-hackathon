@@ -1,7 +1,7 @@
 Video Diagnostics
 =================
 
-Sometimes, a video is what you need. The weather is a complex, multivariate, dynamical system, and a video can communicate the behaviour of that system.
+Sometimes, a video is what you need. The weather is a complex, multivariate, dynamical system, and a video can communicate the behaviour of that system, or show the power and limitations of a model, fast and effectively. Videos are an excellent way to communicate a lot of information in a short time. They are also a great tool for outreach.
 
 
 .. raw:: html
